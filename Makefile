@@ -4,6 +4,7 @@ setup:
 	@test -f .env || cp .env.example .env
 	cd apps/api && uv sync
 	cd apps/web && pnpm install
+	@test -L apps/web/.env.local || test -e apps/web/.env.local || ln -s ../../.env apps/web/.env.local
 
 dev:
 	docker compose up -d --wait

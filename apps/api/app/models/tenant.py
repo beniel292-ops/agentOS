@@ -12,6 +12,7 @@ class Tenant(Base):
     __tablename__ = "tenants"
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    clerk_org_id: Mapped[str] = mapped_column(Text, unique=True)
     name: Mapped[str] = mapped_column(Text)
     # agency facts sheet and reply tone
     settings: Mapped[dict] = mapped_column(JSONB, server_default=text("'{}'::jsonb"))

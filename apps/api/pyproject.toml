@@ -12,6 +12,7 @@ dependencies = [
     "psycopg[binary]",
     "redis",
     "arq",
+    "pyjwt[crypto]>=2.15.1",
 ]
 
 [dependency-groups]

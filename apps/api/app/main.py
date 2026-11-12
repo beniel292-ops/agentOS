@@ -5,9 +5,17 @@ from sqlalchemy import text
 
 from app.config import settings
 from app.db import engine
+from app.routes import leads, me
 
 app = FastAPI(title="AgentOS API")
-app.add_middleware(CORSMiddleware, allow_origins=["http://localhost:3000"], allow_methods=["*"])
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:3000"],
+    allow_methods=["*"],
+    allow_headers=["Authorization", "Content-Type"],
+)
+app.include_router(me.router)
+app.include_router(leads.router)
 
 
 def db_ok() -> bool:

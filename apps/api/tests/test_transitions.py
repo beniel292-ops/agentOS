@@ -15,7 +15,7 @@ from app.workflow.transitions import (
 @pytest.fixture
 def make_lead(session):
     def _make(status=LeadStatus.NEW):
-        tenant = Tenant(name="Acme")
+        tenant = Tenant(clerk_org_id=f"org_{uuid.uuid4().hex}", name="Acme")
         session.add(tenant)
         session.flush()
         lead = Lead(
@@ -77,7 +77,7 @@ def test_rollback_removes_status_and_audit(engine):
     from sqlalchemy.orm import Session
 
     with Session(engine) as s:
-        tenant = Tenant(name="Acme")
+        tenant = Tenant(clerk_org_id=f"org_{uuid.uuid4().hex}", name="Acme")
         s.add(tenant)
         s.flush()
         lead = Lead(

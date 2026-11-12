@@ -8,7 +8,7 @@ from app.models import AuditEvent, Draft, Lead, LeadAnalysis, Tenant
 
 
 def tenant(session):
-    t = Tenant(name="T")
+    t = Tenant(clerk_org_id=f"org_{uuid.uuid4().hex}", name="T")
     session.add(t)
     session.flush()
     return t
