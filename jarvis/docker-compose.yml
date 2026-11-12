@@ -1,0 +1,39 @@
+# Personal Jarvis MVP: OpenClaw (front door) + Hermes (background worker).
+# Both use OmniRoute on the host (http://host.docker.internal:20128/v1) for free models.
+# Ports are bound to 127.0.0.1 only: nothing is reachable from your network.
+services:
+  openclaw:
+    image: ghcr.io/openclaw/openclaw:latest
+    container_name: jarvis-openclaw
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      - HOME=/home/node
+    volumes:
+      - ./data/openclaw:/home/node/.openclaw
+    ports:
+      - "127.0.0.1:18789:18789"   # Control UI + gateway
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    command: ["node", "openclaw.mjs", "gateway", "--bind", "lan", "--port", "18789"]
+
+  hermes:
+    image: nousresearch/hermes-agent:latest
+    container_name: jarvis-hermes
+    restart: unless-stopped
+    volumes:
+      - hermes-data:/opt/data       # Docker volume: macOS folders break Hermes's socket after reboot
+    environment:
+      - API_SERVER_ENABLED=true
+      - API_SERVER_HOST=0.0.0.0
+      - API_SERVER_KEY=${HERMES_API_KEY}
+    ports:
+      - "127.0.0.1:8642:8642"     # Hermes OpenAI-compatible API (OpenClaw can call it)
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    command: ["gateway", "run"]
+
+volumes:
+  hermes-data:
+    external: true
+    name: jarvis-hermes-data

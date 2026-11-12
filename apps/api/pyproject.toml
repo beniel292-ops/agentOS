@@ -1,0 +1,29 @@
+[project]
+name = "agentos-api"
+version = "0.1.0"
+description = "AgentOS API"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi",
+    "uvicorn[standard]",
+    "pydantic-settings",
+    "sqlalchemy>=2",
+    "alembic",
+    "psycopg[binary]",
+    "redis",
+    "arq",
+]
+
+[dependency-groups]
+dev = ["pytest", "httpx", "ruff"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]

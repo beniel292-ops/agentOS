@@ -1,0 +1,454 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>AgentOS Project Blueprint</title>
+<style>
+  @page { size: A4; margin: 16mm 17mm 18mm; }
+  :root { --navy:#1B2537; --blue:#2F6FED; --soft:#EEF3FD; --grey:#5B6475; --line:#D5DAE3;
+          --green:#1F8A5B; --greenbg:#E7F5EE; --red:#C2410C; --redbg:#FDF0E8; --code:#F4F6FA; }
+  * { box-sizing: border-box; }
+  body { font-family: -apple-system, "Helvetica Neue", Helvetica, Arial, sans-serif; color: var(--navy);
+         font-size: 10pt; line-height: 1.45; margin: 0; background: #fff;
+         -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  .page { page-break-after: always; }
+  .page:last-child { page-break-after: auto; }
+  .kicker { font-size: 8pt; letter-spacing: .06em; color: var(--grey); text-transform: uppercase; }
+  h1 { font-size: 21pt; margin: 2px 0 6px; letter-spacing: -.01em; }
+  h1 .n { color: var(--blue); }
+  h2 { font-size: 12.5pt; color: var(--blue); margin: 16px 0 6px; }
+  p { margin: 0 0 7px; }
+  .lead { font-size: 12pt; color: var(--grey); margin-bottom: 12px; }
+  .muted { color: var(--grey); font-size: 8.8pt; }
+  table { width: 100%; border-collapse: collapse; font-size: 8.9pt; margin: 4px 0 6px; page-break-inside: auto; }
+  tr { page-break-inside: avoid; }
+  th { background: var(--navy); color: #fff; text-align: left; font-weight: 600; padding: 6px 7px; }
+  td { border: 1px solid var(--line); padding: 5px 7px; vertical-align: top; }
+  tbody tr:nth-child(even) td { background: #F7F9FC; }
+  td:first-child { font-weight: 600; }
+  table.plain td:first-child { font-weight: 400; }
+  .callout { background: var(--soft); border-left: 3px solid var(--blue); padding: 9px 12px; margin: 8px 0; border-radius: 0 4px 4px 0; }
+  .callout.green { background: var(--greenbg); border-color: var(--green); }
+  ul { margin: 2px 0 8px; padding-left: 18px; }
+  li { margin-bottom: 3px; }
+  code, .mono { font-family: Menlo, "SF Mono", Courier, monospace; font-size: 8.4pt; }
+  pre { background: var(--code); border: 1px solid var(--line); border-radius: 4px; padding: 8px 10px;
+        font-family: Menlo, "SF Mono", Courier, monospace; font-size: 8.1pt; line-height: 1.45; white-space: pre-wrap; margin: 4px 0; }
+  .prompt { page-break-inside: avoid; margin-bottom: 11px; }
+  .prompt pre { white-space: normal; }
+  .prompt .t { font-weight: 700; font-size: 10.5pt; }
+  .prompt .t b { color: var(--blue); margin-right: 6px; }
+  .done { font-size: 8.8pt; color: var(--grey); }
+  .done b { color: var(--green); }
+  svg { width: 100%; height: auto; display: block; margin: 6px 0; }
+  svg text { font-family: -apple-system, "Helvetica Neue", Helvetica, Arial, sans-serif; }
+  .t1 { font-size: 11.5px; font-weight: 700; fill: var(--navy); }
+  .t2 { font-size: 9.5px; fill: var(--grey); }
+  .lab { font-size: 9px; font-weight: 700; fill: var(--grey); letter-spacing: .05em; }
+  .num { font-size: 10px; font-weight: 700; fill: #fff; }
+  .b { fill: #fff; stroke: var(--navy); stroke-width: 1.2; }
+  .bs { fill: var(--soft); stroke: var(--blue); stroke-width: 1.2; }
+  .bg { fill: var(--greenbg); stroke: var(--green); stroke-width: 1.4; }
+  .br { fill: var(--redbg); stroke: var(--red); stroke-width: 1.2; }
+  .bx { fill: var(--code); stroke: var(--grey); stroke-width: 1.1; }
+  .a { stroke: var(--blue); stroke-width: 1.5; fill: none; }
+  .two { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+</style>
+</head>
+<body>
+
+<!-- ============ PAGE 1: OVERVIEW ============ -->
+<section class="page">
+  <div class="kicker">Project blueprint · v1 · November 2026</div>
+  <h1>AgentOS</h1>
+  <p class="lead">An AI workforce for small service businesses. It starts with one job, done really well.</p>
+
+  <div class="callout"><b>The one feature we build first:</b> when a lead comes in, AgentOS reads it, scores it and drafts a reply.
+  A person approves it with one click, then the email goes out. Every step is logged.
+  That's the whole MVP. Everything else in this document comes later.</div>
+
+  <h2>What's in this document</h2>
+  <table class="plain">
+    <thead><tr><th style="width:7%">#</th><th style="width:28%">Section</th><th>What it answers</th></tr></thead>
+    <tbody>
+      <tr><td>1</td><td>Overview</td><td>What we're building now and what waits until later</td></tr>
+      <tr><td>2</td><td>Before you start</td><td>Accounts, tools and decisions you need on day one</td></tr>
+      <tr><td>3</td><td>Tech stack</td><td>What we use now, what we add later, and why</td></tr>
+      <tr><td>4</td><td>Architecture</td><td>Three simple diagrams: the workflow, the system and the lead states</td></tr>
+      <tr><td>5</td><td>Data model</td><td>The six tables the MVP needs</td></tr>
+      <tr><td>6</td><td>Feature roadmap</td><td>Every feature, in the order we add it</td></tr>
+      <tr><td>7</td><td>Build prompts</td><td>Ten copy-paste prompts for building the MVP with Claude Code</td></tr>
+      <tr><td>8</td><td>Definition of done</td><td>The checklist that says the MVP is finished</td></tr>
+    </tbody>
+  </table>
+
+  <h2>Who it's for</h2>
+  <p><b>First customer:</b> small digital marketing agencies (5–30 people) that lose leads because nobody replies fast enough or follows up.
+  <b>Later:</b> consultants, education institutes and other service businesses.</p>
+
+  <h2>Scope for v1</h2>
+  <table class="plain">
+    <thead><tr><th style="width:50%">In v1 (build now)</th><th>Not in v1 (later phases)</th></tr></thead>
+    <tbody>
+      <tr><td>Lead intake from a web form or API</td><td>WhatsApp, Instagram, calendar</td></tr>
+      <tr><td>AI extracts details, scores fit, drafts a reply</td><td>Quotations, automatic follow-ups</td></tr>
+      <tr><td>Approve / edit / reject screen</td><td>Multi-agent orchestration (LangGraph)</td></tr>
+      <tr><td>Email is sent only after approval</td><td>Long-term memory, RAG over documents</td></tr>
+      <tr><td>Simple lead board (status per lead)</td><td>External CRM sync (HubSpot, Zoho)</td></tr>
+      <tr><td>Audit log of every change</td><td>Billing, plans, analytics dashboards</td></tr>
+      <tr><td>One agency, a few users (built multi-tenant from the start)</td><td>Roles beyond owner / member</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<!-- ============ PAGE 2: BEFORE YOU START ============ -->
+<section class="page">
+  <h1><span class="n">2</span> Before you start</h1>
+  <p>Have these ready before writing any code. It takes about an hour.</p>
+
+  <h2>Accounts</h2>
+  <table>
+    <thead><tr><th style="width:24%">Account</th><th>Why</th><th style="width:28%">Cost to start</th></tr></thead>
+    <tbody>
+      <tr><td>GitHub</td><td>Code, pull requests, CI</td><td>Free</td></tr>
+      <tr><td>Anthropic Console</td><td>Claude API key for extraction and drafting</td><td>Pay per use (a few $ during development)</td></tr>
+      <tr><td>Resend</td><td>Sends the email after approval</td><td>Free tier</td></tr>
+      <tr><td>Clerk</td><td>Login; each organisation becomes a tenant</td><td>Free tier</td></tr>
+      <tr><td>Railway or Render</td><td>Hosts the backend, Postgres and Redis</td><td>About $5–10 / month</td></tr>
+      <tr><td>Vercel</td><td>Hosts the Next.js frontend</td><td>Free tier</td></tr>
+      <tr><td>Sentry</td><td>Error tracking from day one</td><td>Free tier</td></tr>
+    </tbody>
+  </table>
+
+  <h2>Tools on your Mac</h2>
+  <table>
+    <thead><tr><th style="width:24%">Tool</th><th style="width:26%">Version</th><th>Note</th></tr></thead>
+    <tbody>
+      <tr><td>Node.js + pnpm</td><td>Node 22 LTS or newer</td><td>Your Node 26 works</td></tr>
+      <tr><td>Python via uv</td><td>3.12</td><td>Your system Python is 3.9, so let uv manage 3.12 for the backend</td></tr>
+      <tr><td>Docker Desktop</td><td>latest</td><td>Runs Postgres and Redis locally with one command</td></tr>
+      <tr><td>Git</td><td>2.39+</td><td>Already installed</td></tr>
+      <tr><td>Claude Code</td><td>latest</td><td>Runs the prompts in section 7</td></tr>
+    </tbody>
+  </table>
+
+  <h2>Three things to decide once</h2>
+  <ul>
+    <li><b>A first test agency</b> and 5–10 realistic sample leads. Fake but believable data makes the AI's work easy to judge.</li>
+    <li><b>The agency's facts sheet:</b> services, price ranges and turnaround times. In v1 this is a plain settings field, not RAG.</li>
+    <li><b>Reply tone:</b> friendly or formal, short or detailed. It goes into the prompt as a setting.</li>
+  </ul>
+
+  <div class="callout green"><b>Rule for the whole project:</b> build the smallest thing that is correct, then add to it.
+  If the current phase doesn't need a tool, don't install it.</div>
+</section>
+
+<!-- ============ PAGE 3: STACK ============ -->
+<section class="page">
+  <h1><span class="n">3</span> Tech stack</h1>
+  <p>This is based on your reference sheet, with fewer moving parts at the start. The "Add later" column says what gets added and when it's actually needed.</p>
+  <table>
+    <thead><tr><th style="width:14%">Area</th><th style="width:32%">Use now (MVP)</th><th style="width:21%">Add later</th><th>Why</th></tr></thead>
+    <tbody>
+      <tr><td>Frontend</td><td>Next.js (App Router) + TypeScript + Tailwind + shadcn/ui</td><td>—</td><td>Fast way to build clean dashboards and forms</td></tr>
+      <tr><td>Backend</td><td>FastAPI + Pydantic v2</td><td>—</td><td>Typed APIs with built-in validation; Python suits the AI code</td></tr>
+      <tr><td>Database</td><td>PostgreSQL 16 + SQLAlchemy 2 + Alembic</td><td>pgvector (Phase 2)</td><td>One database for everything; vectors live in it too</td></tr>
+      <tr><td>AI</td><td>Claude API with structured outputs: Haiku 5.5 extracts, Sonnet 5.5 drafts</td><td>Prompt caching, evals</td><td>Output is checked against a schema before anyone sees it</td></tr>
+      <tr><td>Workflow</td><td>Explicit state machine in code</td><td>LangGraph (Phase 5)</td><td>Predictable, testable and resumable. LangGraph only when there are several agents</td></tr>
+      <tr><td>Jobs</td><td>Redis + arq worker</td><td>—</td><td>Retries and timeouts; slow AI calls stay out of web requests</td></tr>
+      <tr><td>Auth</td><td>Clerk (organisations = tenants)</td><td>SSO for bigger clients</td><td>Don't build login yourself</td></tr>
+      <tr><td>Messaging</td><td>Email via Resend</td><td>WhatsApp Business API (Phase 4)</td><td>Email is low-risk. WhatsApp needs Meta approval and message templates</td></tr>
+      <tr><td>Monitoring</td><td>Sentry + structured logs</td><td>OpenTelemetry (Phase 5)</td><td>See errors on day one; add tracing once there are many services</td></tr>
+      <tr><td>Dev / deploy</td><td>Docker Compose, GitHub Actions, Vercel + Railway</td><td>—</td><td>The same setup locally and in production</td></tr>
+      <tr><td>Automation</td><td>—</td><td>n8n: probably never</td><td>The workflows are the product, so they stay in our own code</td></tr>
+    </tbody>
+  </table>
+
+  <h2>Repository layout</h2>
+<pre>agentos/
+  apps/web/            # Next.js frontend
+  apps/api/            # FastAPI + worker (one codebase, two processes)
+    app/routes/  app/models/  app/workflow/  app/ai/  app/jobs/
+  docker-compose.yml   # Postgres + Redis
+  CLAUDE.md            # rules for Claude Code
+  docs/                # this blueprint + decision notes</pre>
+</section>
+
+<!-- ============ PAGE 4: ARCHITECTURE ============ -->
+<section class="page">
+  <h1><span class="n">4</span> Architecture</h1>
+  <p>Three pictures explain the whole MVP. Read them top to bottom.</p>
+
+  <h2>A. The workflow: what happens to one lead</h2>
+  <svg viewBox="-12 0 676 232">
+    <defs><marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#2F6FED"/></marker></defs>
+    <!-- row 1 -->
+    <g>
+      <rect class="b" x="2" y="14" width="140" height="62" rx="7"/><text class="t1" x="72" y="40" text-anchor="middle">Lead arrives</text><text class="t2" x="72" y="56" text-anchor="middle">Web form or API</text>
+      <rect class="b" x="175" y="14" width="140" height="62" rx="7"/><text class="t1" x="245" y="40" text-anchor="middle">Save lead</text><text class="t2" x="245" y="56" text-anchor="middle">FastAPI → PostgreSQL</text>
+      <rect class="b" x="348" y="14" width="140" height="62" rx="7"/><text class="t1" x="418" y="40" text-anchor="middle">Queue the job</text><text class="t2" x="418" y="56" text-anchor="middle">Redis + idempotency key</text>
+      <rect class="b" x="521" y="14" width="140" height="62" rx="7"/><text class="t1" x="591" y="40" text-anchor="middle">AI step</text><text class="t2" x="591" y="56" text-anchor="middle">Claude: extract, score, draft</text>
+      <line class="a" x1="143" y1="45" x2="173" y2="45" marker-end="url(#ah)"/>
+      <line class="a" x1="316" y1="45" x2="346" y2="45" marker-end="url(#ah)"/>
+      <line class="a" x1="489" y1="45" x2="519" y2="45" marker-end="url(#ah)"/>
+      <line class="a" x1="591" y1="77" x2="591" y2="122" marker-end="url(#ah)"/>
+    </g>
+    <!-- row 2, right to left -->
+    <g>
+      <rect class="b" x="521" y="124" width="140" height="62" rx="7"/><text class="t1" x="591" y="150" text-anchor="middle">Validate output</text><text class="t2" x="591" y="166" text-anchor="middle">Schema check, else retry</text>
+      <rect class="b" x="348" y="124" width="140" height="62" rx="7"/><text class="t1" x="418" y="150" text-anchor="middle">Approval inbox</text><text class="t2" x="418" y="166" text-anchor="middle">Shows lead + draft</text>
+      <rect class="bg" x="175" y="124" width="140" height="62" rx="7"/><text class="t1" x="245" y="150" text-anchor="middle">Person decides</text><text class="t2" x="245" y="166" text-anchor="middle">Approve, edit or reject</text>
+      <rect class="b" x="2" y="124" width="140" height="62" rx="7"/><text class="t1" x="72" y="150" text-anchor="middle">Send + record</text><text class="t2" x="72" y="166" text-anchor="middle">Email, status, audit event</text>
+      <line class="a" x1="520" y1="155" x2="490" y2="155" marker-end="url(#ah)"/>
+      <line class="a" x1="347" y1="155" x2="317" y2="155" marker-end="url(#ah)"/>
+      <line class="a" x1="174" y1="155" x2="144" y2="155" marker-end="url(#ah)"/>
+    </g>
+    <!-- numbers -->
+    <g>
+      <circle cx="4" cy="16" r="9" fill="#2F6FED"/><text class="num" x="4" y="19.5" text-anchor="middle">1</text>
+      <circle cx="177" cy="16" r="9" fill="#2F6FED"/><text class="num" x="177" y="19.5" text-anchor="middle">2</text>
+      <circle cx="350" cy="16" r="9" fill="#2F6FED"/><text class="num" x="350" y="19.5" text-anchor="middle">3</text>
+      <circle cx="523" cy="16" r="9" fill="#2F6FED"/><text class="num" x="523" y="19.5" text-anchor="middle">4</text>
+      <circle cx="523" cy="126" r="9" fill="#2F6FED"/><text class="num" x="523" y="129.5" text-anchor="middle">5</text>
+      <circle cx="350" cy="126" r="9" fill="#2F6FED"/><text class="num" x="350" y="129.5" text-anchor="middle">6</text>
+      <circle cx="177" cy="126" r="9" fill="#1F8A5B"/><text class="num" x="177" y="129.5" text-anchor="middle">7</text>
+      <circle cx="4" cy="126" r="9" fill="#2F6FED"/><text class="num" x="4" y="129.5" text-anchor="middle">8</text>
+    </g>
+    <!-- safety gate between 7 and 8 -->
+    <line x1="159" y1="112" x2="159" y2="198" stroke="#C2410C" stroke-width="1.4" stroke-dasharray="5 3"/>
+    <text x="159" y="212" text-anchor="middle" font-size="9.5" font-weight="700" fill="#C2410C">SAFETY GATE: nothing leaves the system before step 7</text>
+    <text x="2" y="228" font-size="9" fill="#5B6475">Every arrow is a state change written to the audit log. Any failed step can be retried without duplicates.</text>
+  </svg>
+
+  <h2>B. The system: which part talks to which</h2>
+  <svg viewBox="0 0 664 262">
+    <defs><marker id="ah2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#2F6FED"/></marker></defs>
+    <text class="lab" x="85" y="14" text-anchor="middle">PEOPLE &amp; INPUTS</text>
+    <text class="lab" x="332" y="14" text-anchor="middle">OUR SYSTEM</text>
+    <text class="lab" x="578" y="14" text-anchor="middle">DATA &amp; OUTSIDE SERVICES</text>
+
+    <rect class="b" x="2" y="28" width="166" height="54" rx="7"/><text class="t1" x="85" y="51" text-anchor="middle">Agency team</text><text class="t2" x="85" y="67" text-anchor="middle">in the browser</text>
+    <rect class="b" x="2" y="112" width="166" height="54" rx="7"/><text class="t1" x="85" y="135" text-anchor="middle">Incoming lead</text><text class="t2" x="85" y="151" text-anchor="middle">form or webhook</text>
+
+    <rect class="bs" x="249" y="28" width="166" height="54" rx="7"/><text class="t1" x="332" y="51" text-anchor="middle">Next.js app</text><text class="t2" x="332" y="67" text-anchor="middle">inbox, approvals, settings</text>
+    <rect class="bs" x="249" y="112" width="166" height="54" rx="7"/><text class="t1" x="332" y="135" text-anchor="middle">FastAPI backend</text><text class="t2" x="332" y="151" text-anchor="middle">API + state machine</text>
+    <rect class="bs" x="249" y="196" width="166" height="54" rx="7"/><text class="t1" x="332" y="219" text-anchor="middle">Worker</text><text class="t2" x="332" y="235" text-anchor="middle">runs AI and send jobs</text>
+
+    <rect class="bx" x="496" y="28" width="166" height="54" rx="7"/><text class="t1" x="579" y="51" text-anchor="middle">PostgreSQL</text><text class="t2" x="579" y="67" text-anchor="middle">tenants, leads, drafts, audit</text>
+    <rect class="bx" x="496" y="112" width="166" height="54" rx="7"/><text class="t1" x="579" y="135" text-anchor="middle">Redis</text><text class="t2" x="579" y="151" text-anchor="middle">job queue</text>
+    <rect class="bx" x="496" y="196" width="166" height="54" rx="7"/><text class="t1" x="579" y="219" text-anchor="middle">Claude API · Resend</text><text class="t2" x="579" y="235" text-anchor="middle">AI drafts · email</text>
+
+    <line class="a" x1="169" y1="55" x2="247" y2="55" marker-end="url(#ah2)"/>
+    <line class="a" x1="169" y1="139" x2="247" y2="139" marker-end="url(#ah2)"/>
+    <line class="a" x1="332" y1="83" x2="332" y2="110" marker-end="url(#ah2)"/>
+    <line class="a" x1="416" y1="128" x2="494" y2="64" marker-end="url(#ah2)"/>
+    <line class="a" x1="416" y1="139" x2="494" y2="139" marker-end="url(#ah2)"/>
+    <line class="a" x1="496" y1="160" x2="418" y2="206" marker-end="url(#ah2)" stroke-dasharray="4 3"/>
+    <line class="a" x1="416" y1="223" x2="494" y2="223" marker-end="url(#ah2)"/>
+  </svg>
+  <p class="muted">The web app never calls Claude or sends email itself. It only changes a lead's state; the worker does the slow and risky work.</p>
+</section>
+
+<!-- ============ PAGE 5: STATES + DATA ============ -->
+<section class="page">
+  <h2 style="margin-top:0">C. Lead states: the state machine</h2>
+  <svg viewBox="0 0 664 140">
+    <defs>
+      <marker id="ah3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#2F6FED"/></marker>
+      <marker id="ahr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#C2410C"/></marker>
+      <marker id="ahg" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#5B6475"/></marker>
+    </defs>
+    <rect class="bs" x="2" y="10" width="106" height="36" rx="6"/><text class="t1" x="55" y="32" text-anchor="middle">NEW</text>
+    <rect class="bs" x="140" y="10" width="106" height="36" rx="6"/><text class="t1" x="193" y="32" text-anchor="middle">PROCESSING</text>
+    <rect class="bs" x="278" y="10" width="106" height="36" rx="6"/><text class="t1" x="331" y="32" text-anchor="middle">DRAFT_READY</text>
+    <rect class="bs" x="416" y="10" width="106" height="36" rx="6"/><text class="t1" x="469" y="32" text-anchor="middle">APPROVED</text>
+    <rect class="bg" x="554" y="10" width="106" height="36" rx="6"/><text class="t1" x="607" y="32" text-anchor="middle">SENT</text>
+    <line class="a" x1="109" y1="28" x2="138" y2="28" marker-end="url(#ah3)"/>
+    <line class="a" x1="247" y1="28" x2="276" y2="28" marker-end="url(#ah3)"/>
+    <line class="a" x1="385" y1="28" x2="414" y2="28" marker-end="url(#ah3)"/>
+    <line class="a" x1="523" y1="28" x2="552" y2="28" marker-end="url(#ah3)"/>
+
+    <rect class="br" x="140" y="92" width="106" height="36" rx="6"/><text class="t1" x="193" y="114" text-anchor="middle" style="fill:#C2410C">FAILED</text>
+    <line x1="182" y1="47" x2="182" y2="90" stroke="#C2410C" stroke-width="1.5" marker-end="url(#ahr)"/>
+    <line x1="206" y1="90" x2="206" y2="48" stroke="#C2410C" stroke-width="1.5" stroke-dasharray="4 3" marker-end="url(#ahr)"/>
+    <text x="214" y="72" font-size="9" fill="#C2410C">retry</text>
+
+    <rect class="bx" x="416" y="92" width="106" height="36" rx="6"/><text class="t1" x="469" y="114" text-anchor="middle" style="fill:#5B6475">REJECTED</text>
+    <line x1="350" y1="47" x2="430" y2="90" stroke="#5B6475" stroke-width="1.5" marker-end="url(#ahg)"/>
+  </svg>
+
+  <table>
+    <thead><tr><th style="width:31%">Transition</th><th style="width:36%">Who triggers it</th><th>What gets written</th></tr></thead>
+    <tbody>
+      <tr><td>NEW → PROCESSING</td><td>The worker picks up the job</td><td>Audit event, attempt count</td></tr>
+      <tr><td>PROCESSING → DRAFT_READY</td><td>AI output passed validation</td><td>Extracted details, score, draft</td></tr>
+      <tr><td>PROCESSING → FAILED</td><td>Timeout, API error or invalid output, after 3 tries</td><td>Error reason; a person can retry it</td></tr>
+      <tr><td>DRAFT_READY → APPROVED / REJECTED</td><td>A signed-in user of the same agency</td><td>Who, when, and the final text if edited</td></tr>
+      <tr><td>APPROVED → SENT</td><td>The worker sends exactly once (idempotency key)</td><td>The provider's message ID</td></tr>
+    </tbody>
+  </table>
+
+  <h2>Five rules that keep it reliable</h2>
+  <ul>
+    <li><b>Tenant boundary:</b> every table has a <code>tenant_id</code> and every query filters by it. This is covered by tests.</li>
+    <li><b>Idempotency:</b> intake and sending both carry a unique key, so a double-submit or a retry never sends twice.</li>
+    <li><b>Allowed transitions only:</b> one function owns every state change. Anything outside the allowed list is rejected.</li>
+    <li><b>Validate AI output:</b> a Pydantic schema check runs first. Bad output is retried, then marked FAILED, and never reaches the user unchecked.</li>
+    <li><b>Append-only audit:</b> audit events are inserted and never updated or deleted.</li>
+  </ul>
+
+  <h1 style="margin-top:18px"><span class="n">5</span> Data model (MVP)</h1>
+  <table>
+    <thead><tr><th style="width:17%">Table</th><th style="width:53%">Key columns</th><th>Purpose</th></tr></thead>
+    <tbody>
+      <tr><td>tenants</td><td class="mono">id, name, settings (facts sheet, tone)</td><td>One row per agency</td></tr>
+      <tr><td>users</td><td class="mono">id, tenant_id, clerk_user_id, role</td><td>Who can approve (owner / member)</td></tr>
+      <tr><td>leads</td><td class="mono">id, tenant_id, source, name, email, message, status, idempotency_key, created_at</td><td>The enquiry and its current state</td></tr>
+      <tr><td>lead_analysis</td><td class="mono">lead_id, intent, service, budget, urgency, fit_score, model, raw_json</td><td>Validated AI extraction</td></tr>
+      <tr><td>drafts</td><td class="mono">id, lead_id, body, edited_body, decision, decided_by, decided_at</td><td>Suggested reply + the person's decision</td></tr>
+      <tr><td>audit_events</td><td class="mono">id, tenant_id, lead_id, actor, action, from_state, to_state, data, at</td><td>Permanent history of everything</td></tr>
+    </tbody>
+  </table>
+  <p class="muted">Indexes: <code>(tenant_id, status, created_at)</code> on leads, and a unique <code>(tenant_id, idempotency_key)</code>. Each outgoing send gets its own unique key per draft.</p>
+</section>
+
+<!-- ============ PAGE 6: ROADMAP ============ -->
+<section class="page">
+  <h1><span class="n">6</span> Feature roadmap</h1>
+  <p>Work one phase at a time. Don't start the next phase until at least one real agency is using the current one.</p>
+  <table>
+    <thead><tr><th style="width:17%">Phase</th><th style="width:40%">Features</th><th style="width:18%">New tech</th><th>Exit test</th></tr></thead>
+    <tbody>
+      <tr><td>0 · Foundation<br><span class="muted">week 1</span></td><td>Repo, Docker, database, auth, CI, a deployed "hello" page</td><td>—</td><td>You can sign in and see an empty inbox in production</td></tr>
+      <tr><td>1 · Lead reply MVP<br><span class="muted">weeks 2–5</span></td><td>Lead intake · AI extract, score and draft · approval inbox · email after approval · audit log · retries</td><td>Claude API, Redis, Resend</td><td>All six acceptance criteria pass (section 8)</td></tr>
+      <tr><td>2 · Knowledge</td><td>Upload services, pricing, FAQs and case studies · drafts grounded with RAG, with sources shown</td><td>pgvector</td><td>Drafts quote correct prices from the agency's own documents</td></tr>
+      <tr><td>3 · Follow-ups &amp; quotes</td><td>Scheduled follow-ups (still need approval) · quotation draft as PDF · reminders to the owner</td><td>Scheduled jobs</td><td>No lead goes 48 hours without a reply or follow-up</td></tr>
+      <tr><td>4 · Channels &amp; CRM</td><td>WhatsApp Business · Gmail / Outlook sync (OAuth) · HubSpot / Zoho sync · webhook signature checks</td><td>Meta API, OAuth</td><td>A WhatsApp lead is handled end to end</td></tr>
+      <tr><td>5 · Platform</td><td>Roles (owner / manager / agent) · analytics: response time, conversion, time saved · billing · multi-agent flows</td><td>LangGraph, OpenTelemetry, Razorpay</td><td>Paying customers sign up and pay without your help</td></tr>
+      <tr><td>6 · Future</td><td>Calendar booking · document workspace · long-term customer memory · new industries (consulting, education)</td><td>As needed</td><td>Chosen by customer demand</td></tr>
+    </tbody>
+  </table>
+
+  <div class="callout"><b>Prices are guesses for now.</b> The tiers to test are ₹999, ₹2,999 and ₹7,999 a month.
+  Ask 10 agencies what they'd pay during Phase 1, before building billing.</div>
+
+  <h2>Skills you'll learn along the way</h2>
+  <table class="plain">
+    <thead><tr><th style="width:14%">Phase</th><th>Skill</th></tr></thead>
+    <tbody>
+      <tr><td>0–1</td><td>Schema design, transactions, queues, retries, idempotency, structured LLM output, multi-tenant boundaries, human-in-the-loop approvals</td></tr>
+      <tr><td>2</td><td>RAG: chunking, embeddings, retrieval quality, grounding</td></tr>
+      <tr><td>3–4</td><td>Scheduling, OAuth scopes, token storage, webhook verification, secrets management</td></tr>
+      <tr><td>5</td><td>Role-based access, product analytics, billing, tracing, agent orchestration</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<!-- ============ PAGE 7+: PROMPTS ============ -->
+<section class="page">
+  <h1><span class="n">7</span> Step-by-step build prompts</h1>
+  <p>Run these in Claude Code in order, one per branch. Don't move on until the <b>Done when</b> line is true, and commit after each prompt.
+  Save this file as <code>docs/blueprint</code> in the repo so the prompts can point to it.</p>
+
+  <div class="prompt"><div class="t"><b>PROMPT 0</b>Project rules</div>
+<pre>Create CLAUDE.md for AgentOS, a multi-tenant SaaS that helps small marketing agencies reply to leads.
+MVP flow: lead intake -> AI extract/score/draft -> human approval -> email sent -> audit event.
+Stack: Next.js + TypeScript + Tailwind + shadcn/ui (apps/web); FastAPI + Pydantic v2 + SQLAlchemy 2 + Alembic
+(apps/api); PostgreSQL; Redis + arq; Claude API; Resend; Clerk.
+Rules: every table has tenant_id and every query filters by it; no external message is sent before approval;
+state changes only go through one transition function; audit_events are append-only; keep code minimal.</pre>
+  <div class="done"><b>Done when:</b> CLAUDE.md states the stack, the flow and the rules.</div></div>
+
+  <div class="prompt"><div class="t"><b>PROMPT 1</b>Scaffold</div>
+<pre>Scaffold the monorepo described in CLAUDE.md: apps/web (Next.js App Router, TS, Tailwind, shadcn/ui), apps/api
+(FastAPI managed by uv, Python 3.12), docker-compose.yml with Postgres 16 and Redis 7, .env.example, and a
+Makefile with dev, test and migrate targets. Add GET /health to the API and a home page that calls it.
+Add a GitHub Actions workflow that lints and tests both apps.</pre>
+  <div class="done"><b>Done when:</b> <code>make dev</code> starts everything and the home page shows "API: ok".</div></div>
+
+  <div class="prompt"><div class="t"><b>PROMPT 2</b>Database + state machine</div>
+<pre>Add SQLAlchemy models and the first Alembic migration for tenants, users, leads, lead_analysis, drafts and
+audit_events (columns as in docs/blueprint section 5). Lead status enum: NEW, PROCESSING, DRAFT_READY,
+APPROVED, REJECTED, SENT, FAILED. Unique index on (tenant_id, idempotency_key); index on
+(tenant_id, status, created_at). Write app/workflow/transitions.py with an ALLOWED map and
+transition(lead, to_state, actor, data) that updates status and inserts an audit_event in the same
+transaction. Add pytest tests for allowed and rejected transitions.</pre>
+  <div class="done"><b>Done when:</b> migrations run and the transition tests pass.</div></div>
+
+  <div class="prompt"><div class="t"><b>PROMPT 3</b>Auth + tenants</div>
+<pre>Integrate Clerk in apps/web with organisations. In apps/api, verify the Clerk JWT, map the org id to a tenant
+and user, and expose a get_current_tenant dependency used by every route. Add a test proving a user from
+tenant A gets 404 for tenant B's lead.</pre>
+  <div class="done"><b>Done when:</b> the cross-tenant test passes and signed-out users are sent to login.</div></div>
+
+  <div class="prompt"><div class="t"><b>PROMPT 4</b>Lead intake</div>
+<pre>Add POST /v1/leads, authenticated by a per-tenant intake API key, accepting name, email, company, message,
+source and an Idempotency-Key header. A repeated key returns the existing lead instead of creating a new one.
+Save as NEW, write an audit event and enqueue the arq job "process_lead". Add a simple test form page in
+apps/web for submitting sample leads.</pre>
+  <div class="done"><b>Done when:</b> submitting the same lead twice creates one row and one job.</div></div>
+
+  <div class="prompt"><div class="t"><b>PROMPT 5</b>AI step</div>
+<pre>Create app/ai/ with two functions using the Anthropic Python SDK and structured outputs:
+extract_lead(lead) -> LeadAnalysis (intent, service, budget, urgency, fit_score 0-100, reasoning) and
+draft_reply(lead, analysis, tenant_settings) -> Draft. Validate both with Pydantic. Keep prompts in
+separate files. Use claude-haiku-5-5 for extraction and claude-sonnet-5-5 for drafting. Test with recorded
+fake responses (no live API calls in CI).</pre>
+  <div class="done"><b>Done when:</b> the tests pass and a manual run on 5 sample leads gives sensible output.</div></div>
+
+  <div class="prompt"><div class="t"><b>PROMPT 6</b>Worker + retries</div>
+<pre>Implement the arq job process_lead: NEW -> PROCESSING, call extract_lead and draft_reply, save the results,
+then -> DRAFT_READY. Timeout 60s, max 3 attempts with backoff; after the last failure -> FAILED with the
+error stored. The job must be safe to run twice (skip if already past PROCESSING).
+Add POST /v1/leads/{id}/retry for FAILED leads.</pre>
+  <div class="done"><b>Done when:</b> killing the worker mid-job and restarting it finishes the lead with no duplicates.</div></div>
+
+  <div class="prompt"><div class="t"><b>PROMPT 7</b>Approval inbox</div>
+<pre>Build apps/web pages: /inbox (lead list with status badge, fit score and time since arrival; filter by
+status) and /leads/[id] (lead message, extracted details, editable draft, Approve and Reject buttons,
+audit timeline). Add the API routes they need: GET /v1/leads, GET /v1/leads/{id},
+POST /v1/drafts/{id}/approve (optional edited body), POST /v1/drafts/{id}/reject (reason).
+Keep the layout clean and simple with shadcn/ui.</pre>
+  <div class="done"><b>Done when:</b> a user can approve or reject in the browser and the timeline updates.</div></div>
+
+  <div class="prompt"><div class="t"><b>PROMPT 8</b>Send only after approval</div>
+<pre>On approval, enqueue send_reply. The job sends through Resend with an idempotency key built from the draft
+id, stores the provider message id, and moves APPROVED -> SENT. It must refuse to send unless the lead is
+APPROVED. Add a test that tries to send a DRAFT_READY lead and asserts nothing is sent.</pre>
+  <div class="done"><b>Done when:</b> approved replies reach a test inbox and unapproved ones never do.</div></div>
+
+  <div class="prompt"><div class="t"><b>PROMPT 9</b>Acceptance tests + deploy</div>
+<pre>Write an end-to-end pytest covering the six acceptance criteria in docs/blueprint section 8. Add Sentry to
+both apps. Deploy apps/web to Vercel and apps/api + worker + Postgres + Redis to Railway, running migrations
+on deploy. Write a short README covering setup, environment variables and how to run the tests.</pre>
+  <div class="done"><b>Done when:</b> every acceptance test passes in CI and the production URL works end to end.</div></div>
+</section>
+
+<!-- ============ LAST PAGE: DONE ============ -->
+<section class="page">
+  <h1><span class="n">8</span> Definition of done (MVP)</h1>
+  <table>
+    <thead><tr><th style="width:6%">#</th><th style="width:58%">Acceptance criterion</th><th>Proven by</th></tr></thead>
+    <tbody>
+      <tr><td>1</td><td>A test lead can be submitted and is stored exactly once</td><td>Prompt 4 idempotency test</td></tr>
+      <tr><td>2</td><td>The model returns validated structured details and a draft</td><td>Prompt 5 schema tests</td></tr>
+      <tr><td>3</td><td>Only an authorised user of that agency can approve or reject</td><td>Prompt 3 cross-tenant test</td></tr>
+      <tr><td>4</td><td>No external message is sent before approval</td><td>Prompt 8 send-guard test</td></tr>
+      <tr><td>5</td><td>Every state change appears in the audit log</td><td>Transition tests + timeline screen</td></tr>
+      <tr><td>6</td><td>Failures can be retried without duplicate actions</td><td>Prompt 6 restart test</td></tr>
+    </tbody>
+  </table>
+
+  <h2>After the MVP: the first 30 days</h2>
+  <ul>
+    <li>Give it to 3 agencies for free and watch them use the inbox.</li>
+    <li>Track three numbers: time from lead to reply, the share of drafts approved without edits, and leads handled per week.</li>
+    <li>Choose Phase 2 or Phase 3 based on what they complain about most, not on what's most fun to build.</li>
+  </ul>
+
+  <div class="callout green"><b>One sentence to remember:</b> people trust AgentOS because a human approves every message and every action is logged.
+  Protect that, and the features can grow safely.</div>
+</section>
+
+</body>
+</html>
