@@ -12,6 +12,11 @@ class Settings(BaseSettings):
 
     database_url: str = "postgresql+psycopg://agentos:agentos@localhost:5434/agentos"
     redis_url: str = "redis://localhost:6380/0"
+    omniroute_base_url: str = "http://localhost:20128/v1"
+    omniroute_api_key: str = ""
+    ai_model: str = "agy/gemini-3.8-flash-high"
+    ai_fallback_models: list[str] = ["kr/claude-haiku-4.5", "agy/gemini-3.8-flash-medium"]
+    ai_timeout_seconds: float = 60
     clerk_publishable_key: str = Field(
         default="", validation_alias="NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY"
     )

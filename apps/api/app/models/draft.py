@@ -2,7 +2,7 @@ import enum
 import uuid
 from datetime import datetime
 
-from sqlalchemy import DateTime, Enum, ForeignKey, Text, func
+from sqlalchemy import DateTime, Enum, ForeignKey, Text, func, text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import Base
@@ -21,6 +21,7 @@ class Draft(Base):
     lead_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("leads.id", ondelete="CASCADE"), unique=True
     )
+    subject: Mapped[str] = mapped_column(Text, server_default=text("''"))
     body: Mapped[str] = mapped_column(Text)
     edited_body: Mapped[str | None] = mapped_column(Text)
     decision: Mapped[DraftDecision | None] = mapped_column(

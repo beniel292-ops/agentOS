@@ -7,6 +7,9 @@ import { AppHeader } from "@/components/app-header";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import { API_URL, apiFetch } from "@/lib/api";
 
 type Role = "owner" | "member";
@@ -122,13 +125,123 @@ function IntakeKeyCard() {
   );
 }
 
+function AgencyDetailsCard() {
+  const { getToken } = useAuth();
+  const [facts, setFacts] = useState("");
+  const [tone, setTone] = useState("");
+  const [role, setRole] = useState<Role | null>(null);
+  const [loaded, setLoaded] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [status, setStatus] = useState<"saved" | "error" | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const [s, me] = await Promise.all([
+          apiFetch<{ agency_facts: string; tone: string }>(getToken, "/v1/tenant/settings"),
+          apiFetch<{ user: { role: Role } }>(getToken, "/v1/me"),
+        ]);
+        if (cancelled) return;
+        setFacts(s.data.agency_facts);
+        setTone(s.data.tone);
+        setRole(me.data.user.role);
+        setLoaded(true);
+      } catch {
+        if (!cancelled) setStatus("error");
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [getToken]);
+
+  async function save() {
+    setBusy(true);
+    setStatus(null);
+    try {
+      await apiFetch(getToken, "/v1/tenant/settings", {
+        method: "PUT",
+        body: JSON.stringify({ agency_facts: facts, tone }),
+      });
+      setStatus("saved");
+    } catch {
+      setStatus("error");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const readOnly = role !== "owner";
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Agency details for AI replies</CardTitle>
+      </CardHeader>
+      <CardContent className="flex flex-col gap-4">
+        {status === "error" && (
+          <Badge variant="destructive">Something went wrong. Try again.</Badge>
+        )}
+        {status === "saved" && <Badge variant="secondary">Saved</Badge>}
+        {!loaded ? (
+          status !== "error" && <Badge variant="secondary">Loading...</Badge>
+        ) : (
+          <>
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="agency-facts">What your agency offers</Label>
+              <Textarea
+                id="agency-facts"
+                rows={8}
+                maxLength={5000}
+                value={facts}
+                readOnly={readOnly}
+                onChange={(e) => setFacts(e.target.value)}
+                placeholder={
+                  "SEO from Rs 25,000/month. Google and Meta ads management from Rs 20,000/month plus ad spend. Website redesign from Rs 80,000. Based in Chennai. Onboarding takes about 2 weeks."
+                }
+              />
+              <p className="text-sm text-muted-foreground">
+                Replies only use facts written here. Anything missing becomes an offer of a call.
+              </p>
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="reply-tone">Reply tone</Label>
+              <Input
+                id="reply-tone"
+                maxLength={200}
+                value={tone}
+                readOnly={readOnly}
+                onChange={(e) => setTone(e.target.value)}
+                placeholder="friendly and professional"
+              />
+            </div>
+            {readOnly ? (
+              <p className="text-sm text-muted-foreground">Only the owner can edit these.</p>
+            ) : (
+              <div>
+                <Button onClick={save} disabled={busy}>
+                  Save
+                </Button>
+              </div>
+            )}
+          </>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 export default function SettingsPage() {
   const { isLoaded, organization } = useOrganization();
   return (
     <div className="mx-auto flex min-h-screen w-full max-w-3xl flex-col gap-6 p-6">
       <AppHeader />
       {!isLoaded ? null : organization ? (
-        <IntakeKeyCard key={organization.id} />
+        <>
+          <AgencyDetailsCard key={`agency-${organization.id}`} />
+          <IntakeKeyCard key={organization.id} />
+        </>
       ) : (
         <p className="text-muted-foreground">Create an organization on the Home page to continue.</p>
       )}

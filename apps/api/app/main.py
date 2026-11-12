@@ -8,7 +8,7 @@ from sqlalchemy import text
 from app.config import settings
 from app.db import engine
 from app.jobs.queue import close_pool
-from app.routes import intake, leads, me
+from app.routes import intake, leads, me, tenant
 
 
 @asynccontextmanager
@@ -27,6 +27,7 @@ app.add_middleware(
 app.include_router(me.router)
 app.include_router(leads.router)
 app.include_router(intake.router)
+app.include_router(tenant.router)
 
 
 def db_ok() -> bool:
