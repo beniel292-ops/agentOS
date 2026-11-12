@@ -8,15 +8,15 @@ from sqlalchemy import create_engine, text
 from sqlalchemy.engine import make_url
 from sqlalchemy.orm import Session
 
-from app.config import settings
-
 API_DIR = Path(__file__).resolve().parents[1]
 
 
+# Tests never run against DATABASE_URL (that may be Neon); default to local Docker Postgres.
+LOCAL_TEST_URL = "postgresql+psycopg://agentos:agentos@localhost:5434/agentos_test"
+
+
 def _test_url() -> str:
-    if url := os.environ.get("TEST_DATABASE_URL"):
-        return url
-    return make_url(settings.database_url).set(database="agentos_test").render_as_string(False)
+    return os.environ.get("TEST_DATABASE_URL", LOCAL_TEST_URL)
 
 
 @pytest.fixture(scope="session")
