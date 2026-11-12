@@ -14,6 +14,9 @@ class Tenant(Base):
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     clerk_org_id: Mapped[str] = mapped_column(Text, unique=True)
     name: Mapped[str] = mapped_column(Text)
+    # sha256 of the website intake key (plaintext is never stored) + display prefix
+    intake_key_hash: Mapped[str | None] = mapped_column(Text, unique=True)
+    intake_key_prefix: Mapped[str | None] = mapped_column(Text)
     # agency facts sheet and reply tone
     settings: Mapped[dict] = mapped_column(JSONB, server_default=text("'{}'::jsonb"))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

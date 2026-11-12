@@ -1,14 +1,9 @@
 "use client";
 
-import {
-  CreateOrganization,
-  OrganizationSwitcher,
-  UserButton,
-  useAuth,
-  useOrganization,
-} from "@clerk/nextjs";
+import { CreateOrganization, useAuth, useOrganization } from "@clerk/nextjs";
 import { useEffect, useState } from "react";
 
+import { AppHeader } from "@/components/app-header";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
@@ -114,16 +109,7 @@ export default function Home() {
 
   return (
     <div className="mx-auto flex min-h-screen w-full max-w-md flex-col gap-6 p-6">
-      <header className="flex items-center justify-between">
-        <div>
-          <h1 className="text-3xl font-semibold tracking-tight">AgentOS</h1>
-          <p className="text-muted-foreground">Lead reply MVP</p>
-        </div>
-        <div className="flex items-center gap-3">
-          <OrganizationSwitcher hidePersonal />
-          <UserButton />
-        </div>
-      </header>
+      <AppHeader />
       {!isLoaded ? null : organization ? (
         <>
           <StatusCard />

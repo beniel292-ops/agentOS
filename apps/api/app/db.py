@@ -20,3 +20,8 @@ def get_db() -> Iterator[Session]:
         except Exception:
             session.rollback()
             raise
+
+
+def get_session_factory() -> sessionmaker[Session]:
+    """Dependency so tests can swap the factory used by routes that commit explicitly."""
+    return SessionLocal

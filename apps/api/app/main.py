@@ -1,3 +1,5 @@
+from contextlib import asynccontextmanager
+
 import redis
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -5,9 +7,17 @@ from sqlalchemy import text
 
 from app.config import settings
 from app.db import engine
-from app.routes import leads, me
+from app.jobs.queue import close_pool
+from app.routes import intake, leads, me
 
-app = FastAPI(title="AgentOS API")
+
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    yield
+    await close_pool()
+
+
+app = FastAPI(title="AgentOS API", lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:3000"],
@@ -16,6 +26,7 @@ app.add_middleware(
 )
 app.include_router(me.router)
 app.include_router(leads.router)
+app.include_router(intake.router)
 
 
 def db_ok() -> bool:

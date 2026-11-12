@@ -1,0 +1,31 @@
+import logging
+import uuid
+
+from arq import create_pool
+from arq.connections import ArqRedis, RedisSettings
+
+from app.config import settings
+
+log = logging.getLogger(__name__)
+_pool: ArqRedis | None = None
+
+
+async def enqueue_process_lead(lead_id: uuid.UUID | str) -> None:
+    """Queue processing for a lead. Never raises: the requeue sweep covers failures."""
+    global _pool
+    try:
+        if _pool is None:
+            _pool = await create_pool(
+                RedisSettings.from_dsn(settings.redis_url, conn_retries=1, conn_timeout=2)
+            )
+        await _pool.enqueue_job("process_lead", str(lead_id), _job_id=f"process_lead:{lead_id}")
+    except Exception as e:
+        _pool = None
+        log.warning("Could not enqueue lead %s (%s); sweep will retry", lead_id, type(e).__name__)
+
+
+async def close_pool() -> None:
+    global _pool
+    if _pool is not None:
+        await _pool.aclose()
+        _pool = None

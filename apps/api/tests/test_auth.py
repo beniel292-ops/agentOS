@@ -1,56 +1,17 @@
-import base64
 import time
 import uuid
 
-import jwt
 import pytest
-from cryptography.hazmat.primitives.asymmetric import rsa
 from fastapi.testclient import TestClient
 from sqlalchemy import func, select
 
-from app import auth
 from app.config import settings
-from app.db import get_db
 from app.main import app
 from app.models import Lead, Tenant, User
+from tests.auth_helpers import ISSUER, OTHER_KEY, token
 
-ISSUER = "https://test-app-1.clerk.accounts.dev"
-KEY = rsa.generate_private_key(public_exponent=65537, key_size=2048)
-OTHER_KEY = rsa.generate_private_key(public_exponent=65537, key_size=2048)
-
-
-class FakeSigningKey:
-    key = KEY.public_key()
-
-
-@pytest.fixture(autouse=True)
-def clerk(monkeypatch, session):
-    pk = "pk_test_" + base64.b64encode(b"test-app-1.clerk.accounts.dev$").decode()
-    monkeypatch.setattr(settings, "clerk_publishable_key", pk)
-    monkeypatch.setattr(settings, "clerk_authorized_parties", ["http://localhost:3000"])
-    # real verification logic runs; only the JWKS network fetch is replaced
-    monkeypatch.setattr(
-        auth._jwks_client(), "get_signing_key_from_jwt", lambda token: FakeSigningKey()
-    )
-    app.dependency_overrides[get_db] = lambda: session
-    yield
-    app.dependency_overrides.clear()
-
-
+pytestmark = pytest.mark.usefixtures("clerk")
 client = TestClient(app)
-
-
-def token(*, key=KEY, org="v2", role="admin", sub="user_1", **over) -> str:
-    now = int(time.time())
-    claims = {"iss": ISSUER, "sub": sub, "iat": now, "nbf": now - 5, "exp": now + 60,
-              "azp": "http://localhost:3000"}
-    if org == "v2":
-        claims |= {"v": 2, "o": {"id": "org_1", "rol": role, "slg": "acme"}}
-    elif org == "v1":
-        claims |= {"org_id": "org_1", "org_role": f"org:{role}", "org_slug": "acme"}
-    claims |= over
-    claims = {k: v for k, v in claims.items() if v is not None}
-    return jwt.encode(claims, key, algorithm="RS256")
 
 
 def get(path, tok=None):
