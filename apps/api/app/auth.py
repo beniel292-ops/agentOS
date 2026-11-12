@@ -82,6 +82,11 @@ def get_current(
         .on_conflict_do_nothing(index_elements=["clerk_org_id"])
     )
     tenant = session.scalars(select(Tenant).where(Tenant.clerk_org_id == org_id)).one()
+    # Custom session claim set in Clerk: {"org_name": "{{org.name}}"}. Keeps renames in sync.
+    org_name = claims.get("org_name")
+    if org_name and tenant.name != org_name:
+        session.execute(update(Tenant).where(Tenant.id == tenant.id).values(name=org_name))
+        session.refresh(tenant)
 
     session.execute(
         insert(User)

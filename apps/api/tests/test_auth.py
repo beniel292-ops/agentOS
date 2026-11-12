@@ -117,6 +117,12 @@ def test_second_request_reuses_and_role_updates(session):
                           .where(User.clerk_user_id == "user_1")) == 1
 
 
+def test_org_name_claim_sets_and_renames_tenant():
+    assert get("/v1/me", token()).json()["tenant"]["name"] == "acme"
+    assert get("/v1/me", token(org_name="Acme Agency")).json()["tenant"]["name"] == "Acme Agency"
+    assert get("/v1/me", token(org_name="Acme Ltd")).json()["tenant"]["name"] == "Acme Ltd"
+
+
 def test_v1_claims():
     r = get("/v1/me", token(org="v1", role="admin"))
     assert r.status_code == 200 and r.json()["user"]["role"] == "owner"
