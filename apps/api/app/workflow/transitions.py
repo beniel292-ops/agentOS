@@ -6,7 +6,8 @@ from app.models import AuditEvent, Lead, LeadStatus
 S = LeadStatus
 ALLOWED: dict[LeadStatus, frozenset[LeadStatus]] = {
     S.NEW: frozenset({S.PROCESSING}),
-    S.PROCESSING: frozenset({S.DRAFT_READY, S.FAILED}),
+    S.PROCESSING: frozenset({S.DRAFT_READY, S.FAILED, S.LOW_FIT}),
+    S.LOW_FIT: frozenset({S.PROCESSING, S.REJECTED}),
     S.FAILED: frozenset({S.PROCESSING}),
     S.DRAFT_READY: frozenset({S.APPROVED, S.REJECTED}),
     S.APPROVED: frozenset({S.SENT}),

@@ -112,7 +112,7 @@ def test_leads_are_tenant_scoped(session):
     body = r.json()
     assert body["email"] == "ann@example.com" and body["status"] == "NEW"
     assert set(body) == {"id", "name", "email", "company", "message", "source", "status",
-                         "created_at"}
+                         "fit_score", "last_error", "created_at"}
     assert get(f"/v1/leads/{other_lead.id}", token()).status_code == 404
     assert get(f"/v1/leads/{uuid.uuid4()}", token()).status_code == 404
     assert get(f"/v1/leads/{own_lead.id}").status_code == 401

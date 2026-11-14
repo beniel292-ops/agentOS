@@ -33,7 +33,9 @@ lead intake → AI extract / score / draft → human approval → email sent →
 
 ## Lead states
 
-`NEW → PROCESSING → DRAFT_READY → APPROVED → SENT`, plus `PROCESSING → FAILED` (retryable) and `DRAFT_READY → REJECTED`.
+`NEW → PROCESSING → DRAFT_READY → APPROVED → SENT`, plus `PROCESSING → FAILED` (retryable: `FAILED → PROCESSING`), `DRAFT_READY → REJECTED`, and `PROCESSING → LOW_FIT` (fit_score < 20, no draft; "Draft anyway" = `LOW_FIT → PROCESSING` with force; or `LOW_FIT → REJECTED`).
+
+The worker (`process_lead`) never holds a DB transaction during AI calls, retries up to 3 times (30 s, 60 s), then marks `FAILED`. The requeue sweep re-enqueues NEW leads older than 2 min and PROCESSING leads idle for 15 min.
 
 ## External agents (later, Jarvis layer)
 

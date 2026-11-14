@@ -16,6 +16,7 @@ class LeadStatus(enum.StrEnum):
     REJECTED = "REJECTED"
     SENT = "SENT"
     FAILED = "FAILED"
+    LOW_FIT = "LOW_FIT"
 
 
 class Lead(Base):

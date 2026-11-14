@@ -17,9 +17,26 @@ type Lead = {
   name: string;
   email: string;
   status: string;
+  fit_score: number | null;
+  last_error: string | null;
   created_at: string;
 };
 type Result = { id: string; status: string; duplicate: boolean };
+
+const STATUS_STYLE: Record<string, string> = {
+  NEW: "bg-slate-100 text-slate-700",
+  PROCESSING: "bg-blue-100 text-blue-800",
+  DRAFT_READY: "bg-emerald-100 text-emerald-800",
+  LOW_FIT: "bg-amber-100 text-amber-800",
+  FAILED: "bg-red-100 text-red-800",
+  APPROVED: "bg-green-100 text-green-800",
+  REJECTED: "bg-zinc-200 text-zinc-700",
+  SENT: "bg-violet-100 text-violet-800",
+};
+const ACTION: Record<string, { path: string; label: string }> = {
+  FAILED: { path: "retry", label: "Retry" },
+  LOW_FIT: { path: "draft-anyway", label: "Draft anyway" },
+};
 
 function timeAgo(iso: string) {
   const s = Math.max(0, Math.floor((Date.now() - new Date(iso).getTime()) / 1000));
@@ -122,6 +139,23 @@ function LeadsPanel() {
     void load();
   }, [load]);
 
+  // Poll while the worker may still be changing a lead.
+  const active = leads?.some((l) => l.status === "NEW" || l.status === "PROCESSING") ?? false;
+  useEffect(() => {
+    if (!active) return;
+    const id = setInterval(() => void load(), 5000);
+    return () => clearInterval(id);
+  }, [active, load]);
+
+  async function act(l: Lead) {
+    try {
+      await apiFetch(getToken, `/v1/leads/${l.id}/${ACTION[l.status].path}`, { method: "POST" });
+    } catch {
+      // 409 means the lead already moved on; the refresh below shows the real state
+    }
+    await load();
+  }
+
   return (
     <>
       <TestLeadForm onSent={load} />
@@ -142,6 +176,7 @@ function LeadsPanel() {
                 <tr className="border-b text-left text-muted-foreground">
                   <th className="py-2 pr-3 font-medium">Name</th>
                   <th className="py-2 pr-3 font-medium">Email</th>
+                  <th className="py-2 pr-3 font-medium">Fit</th>
                   <th className="py-2 pr-3 font-medium">Status</th>
                   <th className="py-2 text-right font-medium">Received</th>
                 </tr>
@@ -151,8 +186,25 @@ function LeadsPanel() {
                   <tr key={l.id} className="border-b last:border-0">
                     <td className="py-2 pr-3">{l.name}</td>
                     <td className="py-2 pr-3">{l.email}</td>
+                    <td className="py-2 pr-3">{l.fit_score ?? "-"}</td>
                     <td className="py-2 pr-3">
-                      <Badge variant="secondary">{l.status}</Badge>
+                      <Badge
+                        variant="secondary"
+                        className={STATUS_STYLE[l.status]}
+                        title={l.last_error ?? undefined}
+                      >
+                        {l.status}
+                      </Badge>
+                      {ACTION[l.status] && (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="ml-2 h-6 px-2 text-xs"
+                          onClick={() => void act(l)}
+                        >
+                          {ACTION[l.status].label}
+                        </Button>
+                      )}
                     </td>
                     <td className="py-2 text-right text-muted-foreground">
                       {timeAgo(l.created_at)}
