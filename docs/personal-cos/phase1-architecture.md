@@ -113,3 +113,10 @@ Full report: `security-audit-agentring.md`. Summary: **no malware, backdoor, tel
 | 8 | Opportunity detection (Hermes cron + web search) |
 | 9 | Security testing (prompt-injection, abuse, rate limits, kill switch drills) |
 | 10 | Dashboard pages (tasks, calls, transcripts, opportunities, agent activity, security log, STOP) |
+
+## 8. Decisions (approved 2026-11-14)
+
+- Architecture approved as proposed.
+- Phone: Android (agentring app, ringing calls even when locked).
+- Order: AgentOS 6b (Telegram approvals bot) + Chief of Staff Phase 2 (central tasks/memory/scheduled calls/opportunities/kill switch + scoped agent keys) first.
+- Voice AI: **fully local** (`--provider local`, experimental) — nothing leaves the Mac; Gemini Live stays a possible fallback later (only after patching untrusted-text fencing).
