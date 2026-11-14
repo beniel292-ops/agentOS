@@ -17,7 +17,7 @@ case "$1" in
   stop)
     docker compose stop ;;
   status)
-    for s in "OmniRoute http://localhost:20128/" "OpenClaw http://127.0.0.1:18789/healthz" "Hermes http://127.0.0.1:8642/health"; do
+    for s in "OmniRoute http://localhost:20128/" "OpenClaw http://127.0.0.1:18789/healthz" "Hermes http://127.0.0.1:8642/health" "Ollama http://localhost:11434/api/version"; do
       set -- $s; c=$(curl -s -m 3 -o /dev/null -w "%{http_code}" "$2")
       case "$c" in 200|307) echo "OK    $1" ;; *) echo "DOWN  $1 (run ./jarvis.sh start)" ;; esac
     done ;;

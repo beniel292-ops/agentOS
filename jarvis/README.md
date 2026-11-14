@@ -14,6 +14,7 @@ Claude Code builds AgentOS separately.
 | OmniRoute | http://localhost:20128 | Free model gateway (v3.8.53, data in Docker volume `omniroute-data`). Main model `agy/gemini-3.8-flash-high`; backups `kr/claude-haiku-4.5`, `agy/gemini-3.8-flash-medium`, `agy/claude-sonnet-4-6` |
 | OpenClaw | http://127.0.0.1:18789 | Jarvis: you chat with it |
 | Hermes | http://127.0.0.1:8642 (API only) | Background worker OpenClaw hands long jobs to |
+| Ollama (local AI) | http://localhost:11434 | `qwen-agent` = Qwen3.5 9B, 4-bit (Unsloth GGUF), 64k context, ~20 tokens/s on the M5. Hermes's main brain; OpenClaw's last fallback |
 
 ## Every time you turn on the laptop
 
@@ -74,6 +75,14 @@ The browser remembers the token; next time just open the page.
 OmniRoute's logins live in the Docker volume `omniroute-data` (backup: `~/omniroute-backup-2026-11-12`). The old 3.8.50 container is kept stopped as `omniroute-old-3.8.50`; delete it once you're happy.
 
 Free models change over time. If replies keep failing, ask Claude Code to re-test the free models and switch.
+
+## Local model (Qwen3.5 9B)
+
+- Hermes (Fury) thinks with the local model first (free, works offline) and falls back to free cloud models. A web research job takes about 2 minutes.
+- OpenClaw (Jarvis) stays on the faster cloud models; the local model is its last fallback (a simple reply takes about 80 s locally).
+- Thinking is turned off for speed (`agent.reasoning_effort: none` in Hermes).
+- Recreate the profile: `ollama create qwen-agent -f Modelfile` with `FROM hf.co/unsloth/Qwen3.5-9B-GGUF:Q4_K_M` and `PARAMETER num_ctx 65536` (Hermes needs at least 64k).
+- Ollama must be running (the Ollama app in the menu bar).
 
 ## Telegram
 

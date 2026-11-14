@@ -47,6 +47,21 @@ Decided (2026-11-11):
 - No paid API keys (decided 2026-11-11): everything, including AgentOS's own AI calls, goes through OmniRoute's free models (OpenAI-compatible; free models change, so re-test before relying on one). Swap to the Claude API later by changing the base URL and key.
 - Jarvis setup lives in `jarvis/` (see `jarvis/README.md`). OpenClaw delegates to Hermes via `http://hermes:8642/v1/chat/completions`.
 
+## Outreach and approvals (decided 2026-11-14)
+
+Every outgoing message waits for the owner's approval on Telegram (a dedicated AgentOS approvals bot,
+not the Jarvis/Fury bots). The approval message always shows who it goes to, on which channel, and the full text.
+
+| Channel | After the owner taps "Post" |
+|---|---|
+| Email | AgentOS sends it (Resend), then summarises replies on Telegram |
+| WhatsApp | One tap: a wa.me link with the message pre-filled; the owner presses send |
+| Instagram / LinkedIn | Never automated (platform rules). Telegram shows the username/profile, what they said, and the draft; the owner copies and sends |
+
+- Lead replies summarised on Telegram: who, what they want, budget/price they mentioned.
+- Leads with fit_score < 20 (likely spam): no automatic draft; a "Draft anyway" button instead.
+- Prospecting (later phase): find businesses without websites via Google Places API, draft first messages, same approval flow. No scraping of LinkedIn/Instagram.
+
 ## Commands
 
 - `make setup` — first time: create `.env`, install API (uv) and web (pnpm) deps
