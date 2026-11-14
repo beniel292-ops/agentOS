@@ -273,3 +273,53 @@ def test_lead_out_has_fit_score_and_last_error(session, mine, make_lead):
     assert rows[str(plain.id)]["fit_score"] is None
     one = client.get(f"/v1/leads/{scored.id}", headers=auth).json()
     assert one["fit_score"] == 12
+
+
+# --- Telegram notification wiring ---
+
+@pytest.mark.usefixtures("factory")
+async def test_notify_enqueued_after_draft_ready_and_failed(
+    session, make_lead, ai, enqueue_notify
+):
+    lead = make_lead()
+    await run(lead)
+    enqueue_notify.assert_awaited_once_with("draft_ready", str(lead.id))
+
+    enqueue_notify.reset_mock()
+    ai[0].side_effect = AIError([("m", "timeout")])
+    failing = make_lead()
+    with pytest.raises(Retry):
+        await run(failing, job_try=1)
+    enqueue_notify.assert_not_awaited()  # not FAILED yet
+    await run(failing, job_try=3)
+    enqueue_notify.assert_awaited_once_with("lead_failed", str(failing.id))
+
+
+@pytest.mark.usefixtures("factory")
+async def test_no_notify_for_low_fit(session, make_lead, ai, enqueue_notify):
+    ai[0].return_value = (extraction(5), "m-x", {})
+    await run(make_lead())
+    enqueue_notify.assert_not_awaited()
+
+
+@pytest.mark.usefixtures("factory")
+async def test_processing_succeeds_if_notify_enqueue_fails(
+    session, make_lead, ai, monkeypatch
+):
+    from app.config import settings
+    from app.jobs import queue
+    from tests.conftest import REAL_ENQUEUE_NOTIFY
+
+    async def boom(*a, **k):
+        raise ConnectionError("redis down")
+
+    monkeypatch.setattr(queue, "enqueue_notify", REAL_ENQUEUE_NOTIFY)
+    monkeypatch.setattr(queue, "create_pool", boom)
+    monkeypatch.setattr(queue, "_pool", None)
+    monkeypatch.setattr(settings, "telegram_approvals_bot_token", "t")
+    monkeypatch.setattr(settings, "telegram_owner_user_id", 1)
+    monkeypatch.setattr(settings, "telegram_owner_tenant_id", uuid.uuid4())
+    lead = make_lead()
+    await run(lead)
+    session.refresh(lead)
+    assert lead.status == LeadStatus.DRAFT_READY

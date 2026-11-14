@@ -19,12 +19,13 @@ from app.models.cos import (
 from app.models.draft import Draft, DraftDecision
 from app.models.lead import Lead, LeadStatus
 from app.models.lead_analysis import LeadAnalysis
+from app.models.notification import Notification
 from app.models.tenant import Tenant
 from app.models.user import User, UserRole
 
 __all__ = [
     "AgentKey", "AuditEvent", "Base", "CallKind", "CallStatus", "Checkin", "CosSettings",
-    "Draft", "DraftDecision", "Lead", "LeadAnalysis", "LeadStatus", "MemoryKind", "MemoryNote",
-    "OppStatus", "Opportunity", "ScheduledCall", "Task", "TaskSource", "TaskStatus", "Tenant",
-    "User", "UserRole", "Verification",
+    "Draft", "DraftDecision", "Lead", "LeadAnalysis", "LeadStatus", "MemoryKind",
+    "MemoryNote", "Notification", "OppStatus", "Opportunity", "ScheduledCall", "Task",
+    "TaskSource", "TaskStatus", "Tenant", "User", "UserRole", "Verification",
 ]

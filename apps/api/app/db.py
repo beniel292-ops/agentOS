@@ -5,8 +5,9 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from app.config import settings
 
+# 10 s: Neon scales to zero when idle and takes a few seconds to wake up.
 engine = create_engine(
-    settings.database_url, pool_pre_ping=True, connect_args={"connect_timeout": 3}
+    settings.database_url, pool_pre_ping=True, connect_args={"connect_timeout": 10}
 )
 SessionLocal = sessionmaker(engine, expire_on_commit=False)
 

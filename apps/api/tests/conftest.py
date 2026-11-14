@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 from app import auth
 from app.config import settings
 from app.db import get_db, get_session_factory
+from app.jobs import queue
 from app.main import app
 from tests.auth_helpers import ISSUER, FakeSigningKey  # noqa: F401
 
@@ -73,3 +74,16 @@ def clerk(monkeypatch, session):
     app.dependency_overrides[get_session_factory] = lambda: lambda: nullcontext(session)
     yield
     app.dependency_overrides.clear()
+
+
+REAL_ENQUEUE_NOTIFY = queue.enqueue_notify
+
+
+@pytest.fixture(autouse=True)
+def enqueue_notify(monkeypatch):
+    """Never touch Redis for notifications; tests assert on this mock."""
+    from unittest.mock import AsyncMock
+
+    mock = AsyncMock()
+    monkeypatch.setattr(queue, "enqueue_notify", mock)
+    return mock

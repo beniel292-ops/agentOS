@@ -1,14 +1,17 @@
 import logging
 from datetime import UTC, datetime, timedelta
 
-from arq import cron
+from arq import Retry, cron
 from arq.connections import RedisSettings
 from sqlalchemy import and_, or_, select
 from starlette.concurrency import run_in_threadpool
 
 from app.config import settings
 from app.db import SessionLocal
+from app.jobs import queue
 from app.models import Lead, LeadStatus
+from app.telegram import notify as tg_notify
+from app.telegram.client import TelegramError, get_client
 from app.workflow import process
 
 log = logging.getLogger(__name__)
@@ -22,7 +25,42 @@ async def ping(ctx) -> str:
 
 
 async def process_lead(ctx, lead_id: str, force: bool = False) -> None:
-    await run_in_threadpool(process.run, SessionLocal, lead_id, ctx["job_try"], force)
+    kind = await run_in_threadpool(process.run, SessionLocal, lead_id, ctx["job_try"], force)
+    if kind:  # after the commit; enqueue_notify never raises
+        await queue.enqueue_notify(kind, lead_id)
+
+
+def _send_notification(kind: str, ref: str) -> None:
+    tg_notify.send(SessionLocal, get_client(), kind, ref)
+
+
+async def notify(ctx, kind: str, ref: str) -> None:
+    try:
+        await run_in_threadpool(_send_notification, kind, ref)
+    except TelegramError as e:  # the dedup row is already removed, so a retry may resend
+        log.warning("notify %s failed: %s", kind, e)
+        if ctx["job_try"] < process.MAX_TRIES:
+            raise Retry(defer=30 * ctx["job_try"]) from None
+
+
+def _evening_ref() -> str | None:
+    tenant_id = settings.telegram_owner_tenant_id
+    with SessionLocal() as session:
+        ref = tg_notify.evening_due(session, tenant_id)
+        session.commit()  # settings row may have just been created
+        return ref
+
+
+async def evening_summary(ctx) -> None:
+    """Every minute; dedup per local date makes the summary go out once a day."""
+    if not settings.telegram_enabled:
+        return
+    ref = await run_in_threadpool(_evening_ref)
+    if ref:
+        try:
+            await run_in_threadpool(_send_notification, "evening_summary", ref)
+        except TelegramError as e:
+            log.warning("evening summary failed: %s", e)  # next minute is outside the window
 
 
 def _stuck_lead_ids() -> list[str]:
@@ -53,8 +91,8 @@ async def requeue_stuck_leads(ctx) -> None:
 
 
 class WorkerSettings:
-    functions = [ping, process_lead]
-    cron_jobs = [cron(requeue_stuck_leads)]  # second=0 default: once a minute
+    functions = [ping, process_lead, notify]
+    cron_jobs = [cron(requeue_stuck_leads), cron(evening_summary)]  # once a minute each
     redis_settings = RedisSettings.from_dsn(settings.redis_url)
     # Don't keep finished-job results: otherwise the same _job_id is blocked for an hour
     # and requeue_stuck_leads couldn't retry a lead that is still NEW.

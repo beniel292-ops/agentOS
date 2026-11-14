@@ -89,23 +89,27 @@ def _save_draft(session: Session, lead: Lead, draft) -> None:
 
 def _record_failure(
     factory: sessionmaker[Session], lead_id: uuid.UUID, exc: Exception, job_try: int
-) -> None:
+) -> bool:
+    """Returns True if the lead moved to FAILED."""
     message = _error_text(exc)
     log.warning("process_lead %s try %s failed: %s", lead_id, job_try, message)
     with factory() as session:
         session.rollback()
         lead = _processing_lead(session, lead_id)
         if lead is None:
-            return
+            return False
         lead.last_error = message
-        if job_try >= MAX_TRIES:
+        failed = job_try >= MAX_TRIES
+        if failed:
             transition(session, lead, LeadStatus.FAILED, ACTOR, {"error": message[:200]})
         session.commit()
+        return failed
 
 
 def run(
     factory: sessionmaker[Session], lead_id: str, job_try: int, force: bool = False
-) -> None:
+) -> str | None:
+    """Returns the notification kind to send ("draft_ready" / "lead_failed") once committed."""
     lid = uuid.UUID(lead_id)
     started = _start(factory, lid, job_try)
     if started is None:
@@ -139,7 +143,9 @@ def run(
             )
             current.last_error = None
             session.commit()
+        return "draft_ready"
     except Exception as exc:  # noqa: BLE001 - any failure counts as a failed try
-        _record_failure(factory, lid, exc, job_try)
+        if _record_failure(factory, lid, exc, job_try):
+            return "lead_failed"
         if job_try < MAX_TRIES:
             raise Retry(defer=30 * job_try) from exc

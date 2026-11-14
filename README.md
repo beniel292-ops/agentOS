@@ -10,10 +10,14 @@ macOS/Linux with Docker, [uv](https://docs.astral.sh/uv/) (installs Python 3.12)
 
 ```bash
 make setup   # creates .env from .env.example, installs api + web deps
-make dev     # starts Postgres + Redis (Docker), API, worker, web
+make dev     # starts Postgres + Redis (Docker), API, worker, Telegram bot, web
 ```
 
 Open http://localhost:3000 and you should see **API: ok**.
+
+The Telegram approvals bot (`cd apps/api && uv run python -m app.telegram.bot`) also starts with `make dev`.
+Set `TELEGRAM_APPROVALS_BOT_TOKEN`, `TELEGRAM_OWNER_USER_ID` and `TELEGRAM_OWNER_TENANT_ID` in `.env` to
+turn it on; with an empty token it idles. Commands: `/status`, `/tasks`, `/stop`, `/resume`, `/help`.
 
 Other targets: `make test`, `make migrate`, `make down`.
 

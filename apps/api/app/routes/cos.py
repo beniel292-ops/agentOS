@@ -7,7 +7,7 @@ from datetime import UTC, date, datetime, time, timedelta
 from typing import Annotated, Any
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Response
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Response
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy import func, or_, select, text
 from sqlalchemy.dialects.postgresql import insert
@@ -24,6 +24,7 @@ from app.cos_auth import (
 )
 from app.db import get_db
 from app.intake import sha256_hex
+from app.jobs import queue
 from app.models import (
     AgentKey,
     AuditEvent,
@@ -292,6 +293,21 @@ def _tenant_today(session: Session, tenant_id: uuid.UUID) -> date:
     return now().astimezone(tz).date()
 
 
+def _due_today(today: date):
+    return or_(Task.due_date <= today, Task.status == TaskStatus.IN_PROGRESS)
+
+
+def today_open_tasks(session: Session, tenant_id: uuid.UUID) -> list[Task]:
+    """Open tasks due today or earlier (or in progress), most important first."""
+    q = select(Task).where(
+        Task.tenant_id == tenant_id, Task.status.in_(OPEN),
+        _due_today(_tenant_today(session, tenant_id)),
+    )
+    return list(session.scalars(
+        q.order_by(Task.priority, Task.due_date.asc().nulls_last(), Task.created_at)
+    ))
+
+
 @router.get("/tasks")
 def list_tasks(
     p: Annotated[Principal, Depends(require("tasks:read"))],
@@ -309,7 +325,7 @@ def list_tasks(
         if due == "overdue":
             q = q.where(Task.due_date < today)
         else:
-            q = q.where(or_(Task.due_date <= today, Task.status == TaskStatus.IN_PROGRESS))
+            q = q.where(_due_today(today))
     q = q.order_by(Task.priority, Task.due_date.asc().nulls_last(), Task.created_at).limit(limit)
     return [TaskOut.model_validate(t) for t in session.scalars(q)]
 
@@ -397,6 +413,19 @@ class CallbackOut(CallOut):
     moved: bool
 
 
+def _call_ref(call: CallOut) -> str:
+    # includes due_at so a moved callback notifies again
+    return f"{call.id}:{call.due_at.astimezone(UTC).isoformat()}"
+
+
+def _commit_and_notify(
+    session: Session, background: BackgroundTasks, kind: str, ref: str
+) -> None:
+    """Commit first so the notify job can see the row; enqueueing never raises."""
+    session.commit()
+    background.add_task(queue.enqueue_notify, kind, ref)
+
+
 def _in_quiet(t: time, start: time, end: time) -> bool:
     return start <= t < end if start <= end else (t >= start or t < end)
 
@@ -405,6 +434,7 @@ def _in_quiet(t: time, start: time, end: time) -> bool:
 def schedule_callback(
     data: CallbackIn,
     response: Response,
+    background: BackgroundTasks,
     p: Annotated[Principal, Depends(require_write("callbacks:write"))],
     session: Db,
 ) -> CallbackOut:
@@ -452,7 +482,9 @@ def schedule_callback(
         pending.due_at, pending.reason = due_at, data.reason
         _audit(session, p, "callback_moved", id=str(pending.id), minutes=data.minutes)
         response.status_code = 200
-        return CallbackOut(**CallOut.model_validate(pending).model_dump(), moved=True)
+        out = CallbackOut(**CallOut.model_validate(pending).model_dump(), moved=True)
+        _commit_and_notify(session, background, "callback_scheduled", _call_ref(out))
+        return out
     call = ScheduledCall(tenant_id=p.tenant_id, kind=CallKind.CALLBACK, due_at=due_at,
                          reason=data.reason, created_by=p.actor)
     try:
@@ -461,7 +493,9 @@ def schedule_callback(
     except IntegrityError:  # a concurrent request created the pending callback first
         raise HTTPException(status_code=409, detail="Callback already pending, retry") from None
     _audit(session, p, "callback_scheduled", id=str(call.id), minutes=data.minutes)
-    return CallbackOut(**CallOut.model_validate(call).model_dump(), moved=False)
+    out = CallbackOut(**CallOut.model_validate(call).model_dump(), moved=False)
+    _commit_and_notify(session, background, "callback_scheduled", _call_ref(out))
+    return out
 
 
 @router.delete("/callbacks/pending")
@@ -586,6 +620,7 @@ class OppCreated(OppOut):
 def create_opportunity(
     data: OppIn,
     response: Response,
+    background: BackgroundTasks,
     p: Annotated[Principal, Depends(require_write("opportunities:write"))],
     session: Db,
 ) -> OppCreated:
@@ -607,7 +642,10 @@ def create_opportunity(
         _audit(session, p, "opportunity_created", id=str(row.id))
     else:
         response.status_code = 200
-    return OppCreated(**OppOut.model_validate(row).model_dump(), duplicate=not created)
+    out = OppCreated(**OppOut.model_validate(row).model_dump(), duplicate=not created)
+    if created:
+        _commit_and_notify(session, background, "opportunity", str(out.id))
+    return out
 
 
 @router.get("/opportunities")

@@ -11,6 +11,7 @@ dev:
 	@trap 'kill 0' INT TERM EXIT; \
 	(cd apps/api && uv run uvicorn app.main:app --reload --port 8000) & \
 	(cd apps/api && uv run arq app.jobs.worker.WorkerSettings) & \
+	(cd apps/api && uv run python -m app.telegram.bot) & \
 	(cd apps/web && pnpm dev) & \
 	wait
 

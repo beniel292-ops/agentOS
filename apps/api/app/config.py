@@ -1,4 +1,5 @@
 import base64
+import uuid
 from pathlib import Path
 
 from pydantic import Field
@@ -8,7 +9,9 @@ ROOT_ENV = Path(__file__).resolve().parents[3] / ".env"
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=ROOT_ENV, extra="ignore")
+    model_config = SettingsConfigDict(
+        env_file=ROOT_ENV, extra="ignore", env_ignore_empty=True
+    )
 
     database_url: str = "postgresql+psycopg://agentos:agentos@localhost:5434/agentos"
     redis_url: str = "redis://localhost:6380/0"
@@ -21,6 +24,19 @@ class Settings(BaseSettings):
         default="", validation_alias="NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY"
     )
     clerk_authorized_parties: list[str] = ["http://localhost:3000"]
+    # Telegram approvals + Chief of Staff bot. Empty token = all Telegram features off.
+    telegram_approvals_bot_token: str = ""
+    telegram_owner_user_id: int | None = None  # private chat id == user id
+    telegram_owner_tenant_id: uuid.UUID | None = None
+    web_app_url: str = "http://localhost:3000"
+
+    @property
+    def telegram_enabled(self) -> bool:
+        return bool(
+            self.telegram_approvals_bot_token
+            and self.telegram_owner_user_id
+            and self.telegram_owner_tenant_id
+        )
 
     @property
     def clerk_issuer(self) -> str:

@@ -16,18 +16,30 @@ def _redis_settings() -> RedisSettings:
     return replace(RedisSettings.from_dsn(settings.redis_url), conn_retries=1, conn_timeout=2)
 
 
-async def enqueue_process_lead(lead_id: uuid.UUID | str, force: bool = False) -> None:
-    """Queue processing for a lead. Never raises: the requeue sweep covers failures."""
+async def _enqueue(function: str, *args, job_id: str, **kwargs) -> None:
+    """Queue a job. Never raises: callers have a fallback (sweep) or can afford a lost job."""
     global _pool
     try:
         if _pool is None:
             _pool = await create_pool(_redis_settings())
-        await _pool.enqueue_job(
-            "process_lead", str(lead_id), force=force, _job_id=f"process_lead:{lead_id}"
-        )
+        await _pool.enqueue_job(function, *args, _job_id=job_id, **kwargs)
     except Exception as e:
         _pool = None
-        log.warning("Could not enqueue lead %s (%s); sweep will retry", lead_id, type(e).__name__)
+        log.warning("Could not enqueue %s %s (%s)", function, job_id, type(e).__name__)
+
+
+async def enqueue_process_lead(lead_id: uuid.UUID | str, force: bool = False) -> None:
+    """Queue processing for a lead. The requeue sweep covers failures."""
+    await _enqueue(
+        "process_lead", str(lead_id), force=force, job_id=f"process_lead:{lead_id}"
+    )
+
+
+async def enqueue_notify(kind: str, ref: str) -> None:
+    """Queue a Telegram notification. Dedup is in the DB (notifications table)."""
+    if not settings.telegram_enabled:
+        return
+    await _enqueue("notify", kind, ref, job_id=f"notify:{kind}:{ref}")
 
 
 async def close_pool() -> None:
