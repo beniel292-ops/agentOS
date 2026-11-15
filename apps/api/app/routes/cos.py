@@ -17,7 +17,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 from starlette.concurrency import run_in_threadpool
 
-from app import openclaw
+from app import drive, openclaw
 from app.config import settings
 from app.cos_auth import (
     SCOPES,
@@ -979,3 +979,62 @@ def list_memory(
         q = q.where(MemoryNote.kind == kind)
     q = q.order_by(MemoryNote.created_at.desc()).limit(limit)
     return [MemoryOut.model_validate(r) for r in session.scalars(q)]
+
+
+# ---------------------------------------------------------------- Google Drive (read-only)
+
+
+async def _drive_call(
+    session: Session, p: Principal, action: str, call, data
+) -> Any:
+    """Owner tenant only. No DB transaction is open during the Google call; one audit event
+    (ids and counts only, never the query or file text) is written after it succeeds."""
+    if p.tenant_id != settings.telegram_owner_tenant_id:
+        raise HTTPException(status_code=404, detail="Not found")
+    if not drive.configured():
+        raise HTTPException(status_code=503, detail="Drive not connected")
+    session.commit()
+    try:
+        result = await run_in_threadpool(call)
+    except ValueError:
+        raise HTTPException(status_code=422, detail="Invalid request") from None
+    except drive.DriveError:
+        raise HTTPException(status_code=502, detail="Drive request failed") from None
+    _audit(session, p, action, **data(result))
+    return result
+
+
+@router.get("/drive/search")
+async def drive_search(
+    p: Annotated[Principal, Depends(require("drive:read"))],
+    session: Db,
+    q: Annotated[str, Query(min_length=1, max_length=200)],
+    limit: Annotated[int, Query()] = 10,
+) -> dict:
+    files = await _drive_call(session, p, "drive_search", lambda: drive.search(q, limit),
+                              lambda r: {"count": len(r)})
+    return {"files": files, "untrusted": True}
+
+
+@router.get("/drive/recent")
+async def drive_recent(
+    p: Annotated[Principal, Depends(require("drive:read"))],
+    session: Db,
+    days: Annotated[int, Query()] = 7,
+    limit: Annotated[int, Query()] = 20,
+) -> dict:
+    files = await _drive_call(session, p, "drive_recent", lambda: drive.recent(days, limit),
+                              lambda r: {"days": max(1, min(30, days)), "count": len(r)})
+    return {"files": files, "untrusted": True}
+
+
+@router.get("/drive/files/{file_id}/text")
+async def drive_read(
+    file_id: str,
+    p: Annotated[Principal, Depends(require("drive:read"))],
+    session: Db,
+    max_chars: Annotated[int, Query()] = 20000,
+) -> dict:
+    out = await _drive_call(session, p, "drive_read", lambda: drive.read_text(file_id, max_chars),
+                            lambda r: {"id": file_id})
+    return {**out, "untrusted": True}

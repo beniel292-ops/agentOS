@@ -113,3 +113,11 @@ Both bots ignore strangers until you approve them (pairing):
 3. Message again; they now answer.
 
 Tokens live in `.env` (Jarvis) and Hermes's volume `.env` (Fury). If a token leaks, send `/revoke` to @BotFather, then ask Claude Code to swap in the new one.
+
+## Google Drive (read-only)
+
+Jarvis and Fury can search your Drive, read Docs/Sheets/Slides as text, and list files you changed recently (to spot unfinished work). They can't edit, share or delete anything; every read is audited.
+
+- Setup (done once): Google Cloud OAuth client "Desktop app" saved as `secrets/google-oauth-client.json`, then `make drive-auth` (signs you in; the token goes to `secrets/google-drive-token.json`, mode 600, git-ignored).
+- Re-run `make drive-auth` if Google asks you to sign in again (Testing-mode apps can expire sign-ins after 7 days).
+- API: `GET /v1/cos/drive/search|recent|files/<id>/text` (scope `drive:read`). Fury's helper: `/opt/data/bin/agentos_drive.py` (copy in `jarvis/hermes/`).

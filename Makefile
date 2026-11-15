@@ -1,4 +1,4 @@
-.PHONY: setup dev test migrate down
+.PHONY: setup dev test migrate down drive-auth
 
 setup:
 	@test -f .env || cp .env.example .env
@@ -25,3 +25,6 @@ migrate:
 
 down:
 	docker compose down
+
+drive-auth:
+	cd apps/api && uv run python -m scripts.drive_auth

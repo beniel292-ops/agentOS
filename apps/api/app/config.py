@@ -2,7 +2,7 @@ import base64
 import uuid
 from pathlib import Path
 
-from pydantic import Field
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 ROOT_ENV = Path(__file__).resolve().parents[3] / ".env"
@@ -44,6 +44,10 @@ class Settings(BaseSettings):
         default="http://127.0.0.1:8000", validation_alias="VOICE_AGENTOS_API_URL"
     )
 
+    # Google Drive (read-only, owner's tenant only). Files are git-ignored, under secrets/.
+    google_oauth_client_path: Path = ROOT_ENV.parent / "secrets" / "google-oauth-client.json"
+    google_drive_token_path: Path = ROOT_ENV.parent / "secrets" / "google-drive-token.json"
+
     @property
     def telegram_enabled(self) -> bool:
         return bool(
@@ -51,6 +55,11 @@ class Settings(BaseSettings):
             and self.telegram_owner_user_id
             and self.telegram_owner_tenant_id
         )
+
+    @field_validator("google_oauth_client_path", "google_drive_token_path")
+    @classmethod
+    def _from_root(cls, v: Path) -> Path:
+        return v if v.is_absolute() else ROOT_ENV.parent / v
 
     @property
     def clerk_issuer(self) -> str:
