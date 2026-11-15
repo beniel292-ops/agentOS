@@ -18,6 +18,14 @@ Claude Code builds AgentOS separately.
 
 ## Every time you turn on the laptop
 
+**One command starts everything** (Docker, OmniRoute, Jarvis, Fury, the call relay, the AgentOS database, the local voice, the answering service and the AgentOS app):
+
+```bash
+cd ~/Documents/Archive/Desktop/AgentOS && ./start-all.sh
+```
+
+Leave that terminal open (Ctrl+C stops the AgentOS app). The older step-by-step way is below.
+
 1. Open **Docker Desktop** and wait until it says "Engine running".
 2. In Terminal:
    ```bash
