@@ -42,3 +42,7 @@ System instructions, full call audio (and transcription), tool schemas and tool 
 ## Android permissions
 
 INTERNET, POST_NOTIFICATIONS, RECORD_AUDIO, MODIFY_AUDIO_SETTINGS, FOREGROUND_SERVICE (+ PHONE_CALL, MICROPHONE), MANAGE_OWN_CALLS, USE_FULL_SCREEN_INTENT, WAKE_LOCK, VIBRATE, ACCESS_NOTIFICATION_POLICY, REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, BLUETOOTH_CONNECT — all explained by calling. No contacts, SMS, phone state, location, accessibility, package-install permissions.
+
+## Local patches (our deployment)
+
+- 2026-11-15 — `daemon/src/agentring/voice/openai_realtime.py` (`LocalRealtime.__init__`): defaults `turn_detection` to `{"type": "server_vad", "interrupt_response": false}` so echo or background noise on a phone call can't cancel the local voice's replies. Two lines; behaviour for cloud providers unchanged. Reinstall after editing: `uv sync --frozen --extra voice --no-editable --reinstall-package agentring`.
