@@ -1,7 +1,7 @@
 import logging
 from datetime import UTC, datetime, timedelta
 
-from arq import Retry, cron
+from arq import Retry, cron, func
 from arq.connections import RedisSettings
 from sqlalchemy import and_, or_, select
 from starlette.concurrency import run_in_threadpool
@@ -92,7 +92,9 @@ async def requeue_stuck_leads(ctx) -> None:
 
 
 class WorkerSettings:
-    functions = [ping, process_lead, notify]
+    # place_due_calls is also a plain function so POST /v1/cos/calls/now can trigger it at once
+    # (arq registers cron jobs only as "cron:<name>"); the Redis call lock prevents double dialing.
+    functions = [ping, process_lead, notify, func(place_due_calls, timeout=CALL_TIMEOUT + 300)]
     # once a minute each. place_due_calls is also enqueued by name ("call me now"); it can run a
     # whole phone call, so it gets its own timeout (arq registers cron jobs as functions too).
     cron_jobs = [
