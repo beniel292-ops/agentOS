@@ -29,9 +29,9 @@ def api(monkeypatch):
     return a
 
 
-async def test_exactly_five_tools():
+async def test_exactly_six_tools():
     assert sorted(t.name for t in await m.mcp.list_tools()) == [
-        "add_task", "ask_jarvis", "list_tasks", "schedule_callback", "update_task"]
+        "add_task", "answer_jarvis", "ask_jarvis", "list_tasks", "schedule_callback", "update_task"]
 
 
 async def test_list_tasks(api):

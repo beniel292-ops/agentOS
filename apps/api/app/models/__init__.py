@@ -10,6 +10,8 @@ from app.models.cos import (
     MemoryNote,
     Opportunity,
     OppStatus,
+    Question,
+    QuestionStatus,
     ScheduledCall,
     Task,
     TaskSource,
@@ -26,6 +28,7 @@ from app.models.user import User, UserRole
 __all__ = [
     "AgentKey", "AuditEvent", "Base", "CallKind", "CallStatus", "Checkin", "CosSettings",
     "Draft", "DraftDecision", "Lead", "LeadAnalysis", "LeadStatus", "MemoryKind",
-    "MemoryNote", "Notification", "OppStatus", "Opportunity", "ScheduledCall", "Task",
-    "TaskSource", "TaskStatus", "Tenant", "User", "UserRole", "Verification",
+    "MemoryNote", "Notification", "OppStatus", "Opportunity", "Question",
+    "QuestionStatus", "ScheduledCall", "Task", "TaskSource", "TaskStatus", "Tenant", "User",
+    "UserRole", "Verification",
 ]

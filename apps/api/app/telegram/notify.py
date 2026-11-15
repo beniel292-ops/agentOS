@@ -25,6 +25,8 @@ from app.models import (
     LeadStatus,
     Notification,
     Opportunity,
+    Question,
+    QuestionStatus,
     ScheduledCall,
     Task,
     TaskStatus,
@@ -184,7 +186,8 @@ def build_evening_summary(session: Session, tenant_id: uuid.UUID, ref: str) -> B
 
 
 CALL_LABEL = {CallKind.MORNING: "Morning call", CallKind.EVENING: "Evening call",
-              CallKind.CALLBACK: "Callback", CallKind.NOTIFY: "Jarvis note call"}
+              CallKind.CALLBACK: "Callback", CallKind.NOTIFY: "Jarvis note call",
+              CallKind.QUESTION: "Jarvis question call"}
 SKIP_TEXT = {
     "stopped": "Skipped the {k} call: Chief of Staff is stopped",
     "quiet": "Skipped the {k} call: quiet hours",
@@ -226,7 +229,8 @@ def build_call_skipped(session: Session, tenant_id: uuid.UUID, ref: str) -> Buil
     template = SKIP_TEXT.get(why)
     if call is None or template is None:
         return None
-    label = {CallKind.NOTIFY: "Jarvis note"}.get(call.kind, call.kind.value)
+    label = {CallKind.NOTIFY: "Jarvis note", CallKind.QUESTION: "Jarvis question"}.get(
+        call.kind, call.kind.value)
     return "📞 " + template.format(k=label), None
 
 
@@ -262,7 +266,21 @@ def build_request_failed(session: Session, tenant_id: uuid.UUID, ref: str) -> Bu
     ]
 
 
+def build_question_answered(session: Session, tenant_id: uuid.UUID, ref: str) -> Built:
+    """FYI after the owner answered an agent's question on a call (no buttons)."""
+    try:
+        q = session.scalars(select(Question).where(
+            Question.id == uuid.UUID(ref), Question.tenant_id == tenant_id
+        )).first()
+    except ValueError:
+        return None
+    if q is None or q.status != QuestionStatus.ANSWERED:
+        return None
+    return f"📞 Jarvis asked: {q.question}\nYou answered: {q.answer}", None
+
+
 BUILDERS = {
+    "question_answered": build_question_answered,
     "request_sent": build_request_sent,
     "request_failed": build_request_failed,
     "draft_ready": build_draft_ready,

@@ -16,6 +16,7 @@ from app.models import AgentKey, CosSettings, UserRole
 SCOPES = frozenset({
     "tasks:read", "tasks:write", "callbacks:write", "checkins:write", "opportunities:read",
     "opportunities:write", "memory:read", "memory:write", "stop", "calls:request",
+    "questions:answer",
 })
 READ_SCOPES = frozenset(s for s in SCOPES if s.endswith(":read"))
 MEMBER_SCOPES = READ_SCOPES | {"tasks:write", "callbacks:write", "stop"}

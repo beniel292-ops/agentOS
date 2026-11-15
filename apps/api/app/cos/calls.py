@@ -31,6 +31,8 @@ from app.models import (
     CallStatus,
     Checkin,
     CosSettings,
+    Question,
+    QuestionStatus,
     ScheduledCall,
     Task,
 )
@@ -44,7 +46,8 @@ LOCK_SECONDS = CALL_TIMEOUT + 300  # outlives the call, so it can never expire m
 STALE_AFTER = timedelta(minutes=30)  # past due this long: too late to ring
 CREATE_GRACE = timedelta(minutes=5)  # daily rows are not created once their time is this old
 TRANSCRIPT_CAP = 200_000
-TOOLS = "list_tasks,add_task,update_task,schedule_callback,ask_jarvis"
+TOOLS = "list_tasks,add_task,update_task,schedule_callback,ask_jarvis,answer_jarvis"
+QUESTION_STALE = timedelta(hours=1)  # an open question this old can never be answered
 PROMPTS = Path(__file__).parent / "prompts"
 VOICE_ACTOR = "agent:voice"
 SAFE_PATH = "/usr/bin:/bin:/usr/sbin:/sbin"
@@ -52,9 +55,11 @@ PHONE_REASON = {
     CallKind.MORNING: "Morning check-in",
     CallKind.EVENING: "Evening check-in",
     CallKind.CALLBACK: "Calling back as you asked",
+    CallKind.QUESTION: "Jarvis has a question",
 }
 LABEL = {CallKind.MORNING: "morning", CallKind.EVENING: "evening",
-         CallKind.CALLBACK: "callback", CallKind.NOTIFY: "Jarvis note"}
+         CallKind.CALLBACK: "callback", CallKind.NOTIFY: "Jarvis note",
+         CallKind.QUESTION: "Jarvis question"}
 
 # (returncode, stdout); the real one runs agentring, tests replace it
 Runner = Callable[[list[str], dict[str, str], float], Awaitable[tuple[int, str]]]
@@ -72,6 +77,9 @@ class Claim:
     reason: str | None
     tz: str
     started_at: datetime
+    question_id: uuid.UUID | None = None
+    question: str | None = None
+    context: str | None = None
 
 
 # ---------------------------------------------------------------- scheduling (sync, DB)
@@ -122,6 +130,15 @@ def _skip_reason(session: Session, s: CosSettings, call: ScheduledCall, at: date
     return None
 
 
+def _close_question(session: Session, question_id: uuid.UUID | None, why: str) -> None:
+    """The call will not (or did not) bring an answer: an open question becomes unanswered."""
+    q = session.get(Question, question_id) if question_id else None
+    if q is not None and q.status in (QuestionStatus.PENDING, QuestionStatus.CALLING):
+        q.status = QuestionStatus.UNANSWERED
+        session.add(AuditEvent(tenant_id=q.tenant_id, lead_id=None, actor="system:placer",
+                               action="question_unanswered", data={"id": str(q.id), "why": why}))
+
+
 def prepare(
     factory: sessionmaker[Session], tenant_id: uuid.UUID
 ) -> tuple[Claim | None, list[str]]:
@@ -131,6 +148,13 @@ def prepare(
     with factory() as session:
         s = get_or_create_settings(session, tenant_id)
         at = now()
+        stale = session.scalars(select(Question).where(  # e.g. the worker died mid-call
+            Question.tenant_id == tenant_id, Question.status.in_(
+                (QuestionStatus.PENDING, QuestionStatus.CALLING)),
+            Question.created_at < at - QUESTION_STALE,
+        ))
+        for q in list(stale):
+            _close_question(session, q.id, "stale")
         while True:
             call = session.scalars(
                 select(ScheduledCall).where(
@@ -144,11 +168,22 @@ def prepare(
             why = _skip_reason(session, s, call, at)
             if why:
                 call.status = CallStatus.MISSED if why == "late" else CallStatus.CANCELLED
+                _close_question(session, call.question_id, why)
                 skipped.append(f"{call.id}:{why}")
                 continue
+            claim = Claim(call.id, call.kind, call.reason, s.timezone, at)
+            if call.kind == CallKind.QUESTION:
+                q = session.scalars(select(Question).where(
+                    Question.id == call.question_id, Question.tenant_id == tenant_id
+                ).with_for_update()).first()
+                if q is None or q.status != QuestionStatus.PENDING:  # cancelled meanwhile
+                    call.status = CallStatus.CANCELLED
+                    continue
+                q.status = QuestionStatus.CALLING
+                claim.question_id, claim.question, claim.context = q.id, q.question, q.context
             call.status = CallStatus.PLACED
             session.commit()
-            return Claim(call.id, call.kind, call.reason, s.timezone, at), skipped
+            return claim, skipped
 
 
 # ---------------------------------------------------------------- the phone call
@@ -159,15 +194,30 @@ def _clean(text: str | None, limit: int) -> str:
     return re.sub(r"\s+", " ", text).strip()[:limit]
 
 
-def render_instructions(kind: CallKind, tz: str, reason: str | None, at: datetime) -> str:
+FENCE = re.compile(r"<\s*/?\s*(?:note|question|context)\b[^>]*>", re.IGNORECASE)
+
+
+def _fenced(text: str | None, limit: int) -> str:
+    """Untrusted text for a prompt fence: one line, capped, and it cannot close or open a fence."""
+    text = _clean(text, 10_000)
+    while (stripped := FENCE.sub("", text)) != text:  # "<</note>/note>" must not re-form a tag
+        text = stripped
+    return _clean(text, limit)
+
+
+def render_instructions(
+    kind: CallKind, tz: str, reason: str | None, at: datetime,
+    question: str | None = None, context: str | None = None,
+) -> str:
     local = at.astimezone(ZoneInfo(tz))
     common = (PROMPTS / "common.md").read_text().replace(
         "{now}", f"{local:%A %d %B %Y, %H:%M} ({tz})"
     )
     text = (PROMPTS / f"{kind.value}.md").read_text()
-    if kind == CallKind.NOTIFY:  # the note comes from an agent: fenced, and cannot close the fence
-        note = _clean(re.sub(r"</?note>", "", reason or "", flags=re.IGNORECASE), 300)
-        text = text.replace("{note}", note)
+    # notes and questions come from agents: fenced, and they cannot close the fence
+    values = {"note": _fenced(reason, 300) if kind == CallKind.NOTIFY else "",
+              "question": _fenced(question, 300), "context": _fenced(context, 1000) or "(none)"}
+    text = re.sub(r"\{(note|question|context)\}", lambda m: values[m.group(1)], text)  # one pass
     return f"{common}\n{text}"
 
 
@@ -286,6 +336,23 @@ def summarize_changes(
     return "; ".join(parts) + "." if parts else "No changes."
 
 
+def _settle_question(session: Session, claim: Claim, call_answered: bool) -> str | None:
+    """After the call: a question still "calling" got no answer. Returns the summary line."""
+    q = session.get(Question, claim.question_id) if claim.question_id else None
+    if q is None:
+        return None
+    if q.status == QuestionStatus.ANSWERED:
+        return f"Answered Jarvis: {_clean(q.answer, 200)}"
+    _close_question(session, q.id, "no_answer" if call_answered else "missed")
+    return "Jarvis's question was not answered"
+
+
+def _with_answer(changes: str, line: str | None) -> str:
+    if line is None:
+        return changes
+    return f"{line}." if changes == "No changes." else f"{line}. {changes}"
+
+
 def finish(
     factory: sessionmaker[Session], tenant_id: uuid.UUID, claim: Claim, result: dict | None
 ) -> tuple[str, str]:
@@ -295,6 +362,7 @@ def finish(
         call = session.scalars(select(ScheduledCall).where(
             ScheduledCall.id == claim.call_id, ScheduledCall.tenant_id == tenant_id
         )).one()
+        answered = _settle_question(session, claim, bool(result and result.get("answered")))
         if result is None or not result.get("answered"):
             call.status = CallStatus.MISSED
             session.commit()
@@ -304,7 +372,8 @@ def finish(
             tenant_id=tenant_id, kind=claim.kind, call_id=_clean(str(result.get("call_id")), 200),
             started_at=claim.started_at, ended_at=ended,
             transcript=format_transcript(result.get("transcript") or []),
-            summary=summarize_changes(session, tenant_id, claim.tz, claim.started_at, ended),
+            summary=_with_answer(
+                summarize_changes(session, tenant_id, claim.tz, claim.started_at, ended), answered),
         )
         session.add(checkin)
         session.flush()
@@ -329,7 +398,9 @@ async def _place_one(tenant_id: uuid.UUID, runner: Runner) -> None:
             "w", suffix=".md", prefix="jarvis-", delete=False, encoding="utf-8"  # mode 0600
         ) as f:
             path = f.name
-            f.write(render_instructions(claim.kind, claim.tz, claim.reason, claim.started_at))
+            f.write(render_instructions(
+                    claim.kind, claim.tz, claim.reason, claim.started_at,
+                    claim.question, claim.context))
         code, out = await runner(build_argv(claim, path), minimal_env(), CALL_TIMEOUT)
         result = parse_result(out) if code == 0 else None
     except Exception as e:  # the row is already "placed": always finish it

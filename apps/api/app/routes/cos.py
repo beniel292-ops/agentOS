@@ -1,4 +1,5 @@
 """Chief of Staff API: tasks, callbacks, check-ins, opportunities, memory, kill switch, keys."""
+import asyncio
 import hashlib
 import logging
 import re
@@ -13,7 +14,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy import func, or_, select, text
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, sessionmaker
 from starlette.concurrency import run_in_threadpool
 
 from app import openclaw
@@ -26,7 +27,7 @@ from app.cos_auth import (
     require_owner_write,
     require_write,
 )
-from app.db import SessionLocal, get_db
+from app.db import SessionLocal, get_db, get_session_factory
 from app.intake import sha256_hex
 from app.jobs import queue
 from app.models import (
@@ -40,6 +41,8 @@ from app.models import (
     MemoryNote,
     Opportunity,
     OppStatus,
+    Question,
+    QuestionStatus,
     ScheduledCall,
     Task,
     TaskSource,
@@ -602,6 +605,138 @@ def call_now(
     out = CallbackOut(**CallOut.model_validate(call).model_dump(), moved=moved)
     session.commit()  # the worker must see the row
     background.add_task(queue.enqueue_place_calls)
+    return out
+
+
+# ---------------------------------------------------------------- questions (answered by phone)
+
+MAX_OPEN_QUESTIONS = 3
+OPEN_QUESTION = (QuestionStatus.PENDING, QuestionStatus.CALLING)
+POLL_SECONDS = 2
+
+
+class QuestionIn(BaseModel):
+    question: str = Field(min_length=1, max_length=300)
+    context: str | None = Field(default=None, max_length=1000)
+
+
+class QuestionOut(Out):
+    id: uuid.UUID
+    status: QuestionStatus
+    question: str
+    answer: str | None
+    answered_at: datetime | None
+
+
+class QuestionAsked(BaseModel):
+    id: uuid.UUID
+    status: QuestionStatus
+
+
+class AnswerIn(BaseModel):
+    answer: str = Field(min_length=1, max_length=2000)
+
+
+@router.post("/questions", status_code=201)
+def ask_question(
+    data: QuestionIn,
+    background: BackgroundTasks,
+    p: Annotated[Principal, Depends(require_write("calls:request"))],
+    session: Db,
+) -> QuestionAsked:
+    """An agent needs an answer: queue a phone call that asks the owner (worker places it)."""
+    question = data.question.strip()
+    if not question:
+        raise HTTPException(status_code=422, detail="question must not be blank")
+    s = get_or_create_settings(session, p.tenant_id)
+    due_at = now()
+    if _in_quiet(due_at.astimezone(ZoneInfo(s.timezone)).time(), s.quiet_start, s.quiet_end):
+        raise HTTPException(
+            status_code=409,
+            detail=f"Quiet hours until {s.quiet_end:%H:%M}: I won't call. "
+                   "Ask the owner on Telegram instead.",
+        )
+    # one lock per tenant, so concurrent requests cannot pass the open-question cap together
+    session.execute(select(CosSettings.tenant_id).where(
+        CosSettings.tenant_id == p.tenant_id).with_for_update())
+    open_count = session.scalar(select(func.count()).select_from(Question).where(
+        Question.tenant_id == p.tenant_id, Question.status.in_(OPEN_QUESTION)))
+    if open_count >= MAX_OPEN_QUESTIONS:
+        raise HTTPException(
+            status_code=409,
+            detail=f"{MAX_OPEN_QUESTIONS} questions are already waiting for an answer",
+        )
+    _check_limits(session, p.tenant_id, s, due_at, None)
+    row = Question(tenant_id=p.tenant_id, asked_by=p.actor, question=question,
+                   context=(data.context or "").strip() or None)
+    session.add(row)
+    session.flush()
+    call = ScheduledCall(tenant_id=p.tenant_id, kind=CallKind.QUESTION, due_at=due_at,
+                         created_by=p.actor, question_id=row.id)
+    session.add(call)
+    session.flush()
+    row.call_id = call.id
+    _audit(session, p, "question_asked", id=str(row.id), call_id=str(call.id))
+    out = QuestionAsked(id=row.id, status=row.status)
+    session.commit()  # the worker must see the rows
+    background.add_task(queue.enqueue_place_calls)
+    return out
+
+
+@router.post("/questions/answer")
+def answer_question(
+    data: AnswerIn,
+    background: BackgroundTasks,
+    p: Annotated[Principal, Depends(require_write("questions:answer"))],
+    session: Db,
+) -> QuestionOut:
+    """The voice assistant saves the owner's answer to the question being asked on the call."""
+    answer = data.answer.strip()
+    if not answer:
+        raise HTTPException(status_code=422, detail="answer must not be blank")
+    row = session.scalars(
+        select(Question).where(
+            Question.tenant_id == p.tenant_id, Question.status == QuestionStatus.CALLING
+        ).order_by(Question.created_at.desc()).limit(1).with_for_update()
+    ).first()
+    if row is None:
+        raise HTTPException(status_code=404, detail="No question is waiting for an answer.")
+    row.status, row.answer, row.answered_at = QuestionStatus.ANSWERED, answer, now()
+    _audit(session, p, "question_answered", id=str(row.id))  # no free text in the audit log
+    out = QuestionOut.model_validate(row)
+    _commit_and_notify(session, background, "question_answered", str(row.id))
+    return out
+
+
+async def _wait(seconds: float) -> None:
+    """Module-level so tests can replace the sleep."""
+    await asyncio.sleep(seconds)
+
+
+@router.get("/questions/{question_id}")
+async def get_question(
+    question_id: uuid.UUID,
+    p: Annotated[Principal, Depends(require("calls:request"))],
+    session: Db,
+    factory: Annotated[sessionmaker[Session], Depends(get_session_factory)],
+    wait: Annotated[int, Query(ge=0, le=600)] = 0,
+) -> QuestionOut:
+    """Long-poll: returns once the question is answered/unanswered/cancelled, or after `wait`
+    seconds with its current status. Each poll uses a short fresh session."""
+    session.commit()  # release the auth session's transaction before waiting
+
+    def read() -> QuestionOut:
+        with factory() as s:
+            out = QuestionOut.model_validate(_get(s, Question, p.tenant_id, question_id))
+            s.commit()
+            return out
+
+    out = await run_in_threadpool(read)
+    for _ in range(-(-wait // POLL_SECONDS)):  # ceil: at most `wait` seconds of sleeping
+        if out.status not in OPEN_QUESTION:
+            break
+        await _wait(POLL_SECONDS)
+        out = await run_in_threadpool(read)
     return out
 
 

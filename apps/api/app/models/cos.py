@@ -49,6 +49,7 @@ class CallKind(enum.StrEnum):
     EVENING = "evening"
     CALLBACK = "callback"
     NOTIFY = "notify"  # an agent asked for a call now
+    QUESTION = "question"  # an agent needs an answer from the owner
 
 
 class CallStatus(enum.StrEnum):
@@ -56,6 +57,14 @@ class CallStatus(enum.StrEnum):
     PLACED = "placed"
     COMPLETED = "completed"
     MISSED = "missed"
+    CANCELLED = "cancelled"
+
+
+class QuestionStatus(enum.StrEnum):
+    PENDING = "pending"
+    CALLING = "calling"
+    ANSWERED = "answered"
+    UNANSWERED = "unanswered"
     CANCELLED = "cancelled"
 
 
@@ -189,10 +198,41 @@ class ScheduledCall(Base):
     )
     reason: Mapped[str | None] = mapped_column(Text)
     created_by: Mapped[str] = mapped_column(Text)
+    question_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("questions.id", ondelete="SET NULL")
+    )
     created_at: Mapped[datetime] = _created()
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
+
+
+class Question(Base):
+    """An agent's question for the owner; answered by phone (kind=question call)."""
+    __tablename__ = "questions"
+    __table_args__ = (
+        CheckConstraint(
+            "char_length(question) BETWEEN 1 AND 300", name="ck_questions_question_len"),
+        CheckConstraint("char_length(context) <= 1000", name="ck_questions_context_len"),
+        CheckConstraint("char_length(answer) <= 2000", name="ck_questions_answer_len"),
+        Index("ix_questions_tenant_id_status", "tenant_id", "status"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    tenant_id: Mapped[uuid.UUID] = _tenant_fk()
+    asked_by: Mapped[str] = mapped_column(Text)  # principal actor, e.g. "agent:openclaw"
+    question: Mapped[str] = mapped_column(Text)
+    context: Mapped[str | None] = mapped_column(Text)
+    status: Mapped[QuestionStatus] = mapped_column(
+        _enum(QuestionStatus, "question_status"), default=QuestionStatus.PENDING
+    )
+    answer: Mapped[str | None] = mapped_column(Text)
+    call_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("scheduled_calls.id", ondelete="SET NULL", use_alter=True,
+                   name="fk_questions_call_id")
+    )
+    created_at: Mapped[datetime] = _created()
+    answered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
 class Checkin(Base):

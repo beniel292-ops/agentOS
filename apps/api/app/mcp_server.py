@@ -201,6 +201,21 @@ async def ask_jarvis(request: str) -> str:
     return {"sent": SENT, "limited": LIMITED}.get(resp.get("handoff"), SAVED)
 
 
+@mcp.tool()
+@_safe
+async def answer_jarvis(answer: str) -> str:
+    """Pass Beniel's answer to the question Jarvis asked on this call. Only use it on a call where Jarvis asked a question; read his answer back first and call only after he confirms it. Give his own words, short."""  # noqa: E501
+    text = _clean(answer, 1000)
+    if not text:
+        return "Tell me his answer first."
+    status, resp = await _api("POST", "/v1/cos/questions/answer", json={"answer": text})
+    if status == 404:
+        return "There's no question waiting for an answer."
+    if status != 200:
+        return _refusal(status, resp)
+    return "Thanks, I've passed that to Jarvis."
+
+
 def main() -> None:
     if not settings.voice_agent_key:
         sys.exit("VOICE_AGENT_KEY is not set")
