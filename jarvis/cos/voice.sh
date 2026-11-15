@@ -6,11 +6,19 @@ V=~/Documents/Archive/Desktop/agentring-voice
 case "$1" in
   start)
     (cd "$AR/deploy" && docker compose -p agentring -f docker-compose.local.yml --env-file .env.local up -d)
+    # Call "brain": cloud = free Claude Haiku via OmniRoute (only text leaves the Mac; audio stays local),
+    # local = Ministral 3B in Ollama (fully offline, weaker with tools). Override: VOICE_BRAIN=local ./voice.sh start
+    if [ "${VOICE_BRAIN:-cloud}" = "local" ]; then
+      LLM_URL=http://127.0.0.1:11434/v1; LLM_KEY=none; LLM_MODEL=ministral-voice
+    else
+      LLM_URL=http://127.0.0.1:20128/v1; LLM_MODEL=kr/claude-haiku-4.5
+      LLM_KEY=$(grep '^OMNIROUTE_API_KEY=' "$(cd "$(dirname "$0")/../.." && pwd)/.env" | cut -d= -f2)
+    fi
     if ! lsof -nP -iTCP:8765 -sTCP:LISTEN >/dev/null 2>&1; then
       (cd "$V" && VIRTUAL_ENV="$V/s2s" PATH="$V/s2s/bin:$PATH" nohup s2s/bin/speech-to-speech serve \
         --mac-optimal-settings --tts kokoro --no_enable_live_transcription --llm_backend chat-completions \
-        --responses_api_base_url http://127.0.0.1:11434/v1 --responses_api_api_key none \
-        --model_name ministral-voice --parakeet_tdt_language en \
+        --responses_api_base_url "$LLM_URL" --responses_api_api_key "$LLM_KEY" \
+        --model_name "$LLM_MODEL" --parakeet_tdt_language en \
         --host 127.0.0.1 --port 8765 > s2s.log 2>&1 &)
       echo "voice server starting (about 1 minute)..."
     fi
