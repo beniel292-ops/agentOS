@@ -295,7 +295,7 @@ async def test_argv_is_a_list_with_flags_and_minimal_env(session, owner, monkeyp
     assert argv[2].startswith("Jarvis note: ")  # never a leading dash
     assert argv[argv.index("--mcp") + 1] == settings.voice_mcp_url
     assert argv[argv.index("--tools") + 1] == (
-        "list_tasks,add_task,update_task,schedule_callback,save_request")
+        "list_tasks,add_task,update_task,schedule_callback,ask_jarvis")
     assert argv[argv.index("--agents") + 1] == "none" and "--no-fallback" in argv
     assert "--ai" in argv and "--json" in argv and timeout == 1200
     assert set(env) == {"PATH", "HOME", "AGENTRING_HOME"}
@@ -354,7 +354,7 @@ async def test_no_owner_tenant_does_nothing(monkeypatch):
 def test_prompts_have_honesty_rule(kind):
     text = calls.render_instructions(kind, "Asia/Kolkata", "hello", NOW)
     assert "NEVER say you did or will do something your tools cannot do" in text
-    assert "save_request" in text and "Saturday 14 November 2026, 10:00" in text
+    assert "ask_jarvis" in text and "Saturday 14 November 2026, 10:00" in text
     assert "you are an AI" in text.lower() or "say you are an AI" in text
 
 

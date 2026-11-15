@@ -44,7 +44,7 @@ LOCK_SECONDS = CALL_TIMEOUT + 300  # outlives the call, so it can never expire m
 STALE_AFTER = timedelta(minutes=30)  # past due this long: too late to ring
 CREATE_GRACE = timedelta(minutes=5)  # daily rows are not created once their time is this old
 TRANSCRIPT_CAP = 200_000
-TOOLS = "list_tasks,add_task,update_task,schedule_callback,save_request"
+TOOLS = "list_tasks,add_task,update_task,schedule_callback,ask_jarvis"
 PROMPTS = Path(__file__).parent / "prompts"
 VOICE_ACTOR = "agent:voice"
 SAFE_PATH = "/usr/bin:/bin:/usr/sbin:/sbin"
@@ -250,7 +250,10 @@ def summarize_changes(
         AuditEvent.tenant_id == tenant_id, AuditEvent.actor == VOICE_ACTOR,
         AuditEvent.at >= start - timedelta(seconds=2), AuditEvent.at <= end + timedelta(seconds=5),
     ).order_by(AuditEvent.id))
+    events = list(events)
+    sent_ids = {e.data.get("id") for e in events if e.action == "request_handed_off"}
     added: list[str] = []
+    sent: list[str] = []
     done: list[str] = []
     other: list[str] = []
     callback = None
@@ -260,20 +263,24 @@ def summarize_changes(
             call = session.scalar(select(ScheduledCall).where(
                 ScheduledCall.id == uuid.UUID(ref), ScheduledCall.tenant_id == tenant_id))
             callback = _local_hm(call.due_at, tz) if call else callback
-        elif e.action in ("task_created", "task_updated"):
+        elif e.action in ("task_created", "task_updated", "request_handed_off"):
             task = session.scalar(select(Task).where(
                 Task.id == uuid.UUID(ref), Task.tenant_id == tenant_id))
             if task is None:
                 continue
             title = _clean(task.title, 60)
-            if e.action == "task_created":
-                added.append(title)
+            if e.action == "request_handed_off":
+                sent.append(title.removeprefix("Request: "))
+            elif e.action == "task_created":
+                if ref not in sent_ids:
+                    added.append(title)
             elif "status" in e.data.get("fields", []) and e.data.get("status") == "done":
                 done.append(title)
             else:
                 other.append(title)
     parts = [f"{label}: {', '.join(items)}" for label, items in
-             (("Added", added), ("Done", done), ("Updated", other)) if items]
+             (("Added", added), ("Sent to Jarvis", sent), ("Done", done),
+              ("Updated", other)) if items]
     if callback:
         parts.append(f"Callback: {callback}")
     return "; ".join(parts) + "." if parts else "No changes."

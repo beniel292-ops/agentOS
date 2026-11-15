@@ -30,7 +30,7 @@ case "$1" in
       chmod 600 "$I"
       env -i PATH=/usr/bin:/bin HOME="$HOME" nohup "$AR/daemon/.venv/bin/agentring" serve --ai --provider local \
         --agents none --mcp http://127.0.0.1:8787/mcp \
-        --tools list_tasks,add_task,update_task,schedule_callback,save_request \
+        --tools list_tasks,add_task,update_task,schedule_callback,ask_jarvis \
         --instructions "@$I" > "$V/serve.log" 2>&1 &
       echo "answering calls from the phone (agentring serve)"
     fi ;;

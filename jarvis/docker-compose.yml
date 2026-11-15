@@ -16,6 +16,7 @@ services:
       - HERMES_API_KEY=${HERMES_API_KEY}
       - AGENTOS_API_URL=${AGENTOS_API_URL}
       - AGENTOS_KEY=${AGENTOS_OPENCLAW_KEY}
+      - OPENCLAW_HOOKS_TOKEN=${OPENCLAW_HOOKS_TOKEN}
     volumes:
       - ./data/openclaw:/home/node/.openclaw
     ports:

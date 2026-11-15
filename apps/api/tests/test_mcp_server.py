@@ -31,7 +31,7 @@ def api(monkeypatch):
 
 async def test_exactly_five_tools():
     assert sorted(t.name for t in await m.mcp.list_tools()) == [
-        "add_task", "list_tasks", "save_request", "schedule_callback", "update_task"]
+        "add_task", "ask_jarvis", "list_tasks", "schedule_callback", "update_task"]
 
 
 async def test_list_tasks(api):
@@ -104,12 +104,20 @@ async def test_callback_refusals(api, status, detail, expect):
     assert expect in (await m.schedule_callback(30)).lower()
 
 
-async def test_save_request(api):
-    api.replies[("POST", "/v1/cos/tasks")] = (201, {"duplicate": False})
-    assert await m.save_request("research X " + "z" * 500) == m.SAVED
+async def test_ask_jarvis_outcomes(api):
+    api.replies[("POST", "/v1/cos/tasks")] = (201, {"duplicate": False, "handoff": "sent"})
+    assert await m.ask_jarvis("research X " + "z" * 500) == m.SENT
     body = api.calls[-1][2]["json"]
     assert body["project"] == "for-jarvis" and body["source"] == "voice"
     assert body["title"].startswith("Request: research X") and len(body["title"]) <= 200
+    for resp, expect in [
+        ((201, {"duplicate": False, "handoff": "limited"}), m.LIMITED),
+        ((201, {"duplicate": False, "handoff": "unavailable"}), m.SAVED),
+        ((200, {"duplicate": True, "handoff": None}), m.DUPLICATE),
+        ((423, {"detail": "stopped"}), m.STOPPED),
+    ]:
+        api.replies[("POST", "/v1/cos/tasks")] = resp
+        assert await m.ask_jarvis("x") == expect
 
 
 async def test_never_raises(monkeypatch):
@@ -118,7 +126,7 @@ async def test_never_raises(monkeypatch):
 
     monkeypatch.setattr(m, "_api", boom)
     for out in (await m.list_tasks(), await m.add_task("x"), await m.update_task("1", "done"),
-                await m.schedule_callback(30), await m.save_request("x")):
+                await m.schedule_callback(30), await m.ask_jarvis("x")):
         assert out == "Sorry, I can't reach my task list right now."
 
 

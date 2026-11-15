@@ -25,7 +25,11 @@ MAX_RESULT = 300
 PRIORITY = {"high": 1, "normal": 2, "low": 3}
 PRIORITY_NAME = {v: k for k, v in PRIORITY.items()}
 STATUSES = ("done", "pending", "in_progress", "dropped")
-SAVED = "Saved. Ask Jarvis on Telegram to run it."
+SENT = "Sent to Jarvis. He'll message you on Telegram and call you when it's done."
+LIMITED = "Too many requests this hour; I saved it — ask Jarvis on Telegram later."
+SAVED = "I saved it. Ask Jarvis on Telegram later."
+STOPPED = "The Chief of Staff is stopped, so I can't send it."
+DUPLICATE = "That request is already with Jarvis."
 
 mcp = FastMCP("jarvis-tasks", host=HOST, port=PORT)
 # Task ids in the order of the last list_tasks result, so "2" means the second one.
@@ -180,15 +184,21 @@ async def schedule_callback(minutes: int) -> str:
 
 @mcp.tool()
 @_safe
-async def save_request(text: str) -> str:
-    """Save a request for Jarvis on Telegram. Use it for anything you cannot do yourself."""
-    text = _clean(text, 191)
+async def ask_jarvis(request: str) -> str:
+    """Send Beniel's request to Jarvis, his main assistant, to do it now (research, files, messages to Beniel, anything you can't do). Before calling, read the request back in one sentence and ask 'Shall I send this to Jarvis?'; only call after he says yes."""  # noqa: E501
+    text = _clean(request, 191)
     if not text:
-        return "Tell me what to save."
+        return "Tell me what to send."
     status, resp = await _api("POST", "/v1/cos/tasks", json={
         "title": f"Request: {text}", "project": "for-jarvis", "source": "voice",
     })
-    return SAVED if status in (200, 201) else _refusal(status, resp)
+    if status == 423:
+        return STOPPED
+    if status not in (200, 201):
+        return _refusal(status, resp)
+    if resp.get("duplicate"):
+        return DUPLICATE
+    return {"sent": SENT, "limited": LIMITED}.get(resp.get("handoff"), SAVED)
 
 
 def main() -> None:

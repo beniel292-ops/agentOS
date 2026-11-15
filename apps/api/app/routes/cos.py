@@ -1,5 +1,6 @@
 """Chief of Staff API: tasks, callbacks, check-ins, opportunities, memory, kill switch, keys."""
 import hashlib
+import logging
 import re
 import secrets
 import uuid
@@ -13,7 +14,10 @@ from sqlalchemy import func, or_, select, text
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
+from starlette.concurrency import run_in_threadpool
 
+from app import openclaw
+from app.config import settings
 from app.cos_auth import (
     SCOPES,
     Principal,
@@ -22,7 +26,7 @@ from app.cos_auth import (
     require_owner_write,
     require_write,
 )
-from app.db import get_db
+from app.db import SessionLocal, get_db
 from app.intake import sha256_hex
 from app.jobs import queue
 from app.models import (
@@ -43,6 +47,7 @@ from app.models import (
     Verification,
 )
 
+log = logging.getLogger(__name__)
 router = APIRouter(prefix="/v1/cos")
 
 Db = Annotated[Session, Depends(get_db)]
@@ -286,6 +291,8 @@ class TaskOut(Out):
 
 class TaskCreated(TaskOut):
     duplicate: bool
+    # voice requests for Jarvis only: sent | limited | unavailable (saved, not handed off)
+    handoff: str | None = None
 
 
 def _tenant_today(session: Session, tenant_id: uuid.UUID) -> date:
@@ -330,13 +337,51 @@ def list_tasks(
     return [TaskOut.model_validate(t) for t in session.scalars(q)]
 
 
+MAX_HANDOFFS_PER_HOUR = 10
+
+
+async def _handoff_job(tenant_id: uuid.UUID, task_id: uuid.UUID, actor: str) -> None:
+    """After the response: call OpenClaw, then tell the owner on Telegram (never raises)."""
+    try:
+        kind = await run_in_threadpool(openclaw.handoff, SessionLocal, tenant_id, task_id, actor)
+    except Exception as e:  # noqa: BLE001 - a background step must not crash the worker
+        log.warning("request hand-off failed: %s", type(e).__name__)
+        return
+    if kind:
+        await queue.enqueue_notify(kind, str(task_id))
+
+
+def _start_handoff(
+    session: Session, background: BackgroundTasks, p: Principal, task: Task
+) -> str:
+    """Guardrails, then in_progress + audit + commit, then hand off in the background.
+    (The kill switch already answered 423 in require_write.)"""
+    if p.tenant_id != settings.telegram_owner_tenant_id:
+        return "unavailable"
+    recent = session.scalar(
+        select(func.count()).select_from(AuditEvent).where(
+            AuditEvent.tenant_id == p.tenant_id, AuditEvent.action == "request_handed_off",
+            AuditEvent.at >= func.now() - text("interval '1 hour'"),
+        )
+    )
+    if recent >= MAX_HANDOFFS_PER_HOUR:
+        return "limited"
+    task.status = TaskStatus.IN_PROGRESS
+    _audit(session, p, "request_handed_off", id=str(task.id))
+    session.commit()
+    background.add_task(_handoff_job, p.tenant_id, task.id, p.actor)
+    return "sent"
+
+
 @router.post("/tasks", status_code=201)
 def create_task(
     data: TaskIn,
     response: Response,
+    background: BackgroundTasks,
     p: Annotated[Principal, Depends(require_write("tasks:write"))],
     session: Db,
 ) -> TaskCreated:
+    handoff = None
     norm = _norm(data.title)
     values = data.model_dump() | {
         "tenant_id": p.tenant_id, "title_norm": norm, "status": TaskStatus.PENDING,
@@ -350,9 +395,13 @@ def create_task(
     )
     if created:
         _audit(session, p, "task_created", id=str(task.id), source=data.source.value)
+        if data.project == "for-jarvis" and data.source == TaskSource.VOICE:
+            handoff = _start_handoff(session, background, p, task)
     else:
         response.status_code = 200
-    return TaskCreated(**TaskOut.model_validate(task).model_dump(), duplicate=not created)
+    return TaskCreated(
+        **TaskOut.model_validate(task).model_dump(), duplicate=not created, handoff=handoff
+    )
 
 
 @router.patch("/tasks/{task_id}")

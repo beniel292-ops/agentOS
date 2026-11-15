@@ -64,6 +64,8 @@ not the Jarvis/Fury bots). The approval message always shows who it goes to, on 
 - Leads with fit_score < 20 (likely spam): no automatic draft; a "Draft anyway" button instead.
 - Prospecting (later phase): find businesses without websites via Google Places API, draft first messages, same approval flow. No scraping of LinkedIn/Instagram.
 
+Voice → Jarvis hand-off (decided by the owner 2026-11-15): on a call, the voice reads the request back, gets a spoken "yes", then `ask_jarvis` creates a `for-jarvis` task and AgentOS hands it straight to OpenClaw through its inbound webhook (dedicated token, agent `main` only, idempotency key per task). Guardrails: only the paired phone, STOP blocks it, max 10 hand-offs per hour, every hand-off audited, Telegram FYI; on failure Telegram shows Run/Dismiss to retry. OpenClaw marks the task done and requests a call-back via `POST /v1/cos/calls/now`.
+
 ## Commands
 
 - `make setup` — first time: create `.env`, install API (uv) and web (pnpm) deps

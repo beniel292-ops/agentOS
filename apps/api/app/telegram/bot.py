@@ -13,6 +13,7 @@ from datetime import UTC, datetime
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, sessionmaker
 
+from app import openclaw
 from app.config import settings
 from app.db import SessionLocal
 from app.models import (
@@ -21,6 +22,8 @@ from app.models import (
     DraftDecision,
     Lead,
     LeadStatus,
+    Task,
+    TaskStatus,
     User,
     UserRole,
 )
@@ -30,7 +33,7 @@ from app.telegram.notify import next_call_text
 from app.workflow.transitions import ConcurrentTransition, InvalidTransition, transition
 
 log = logging.getLogger(__name__)
-CALLBACK_RE = re.compile(r"^(ap|rj):([0-9a-f-]{36})$")
+CALLBACK_RE = re.compile(r"^(ap|rj|rr|rd):([0-9a-f-]{36})$")
 HELP = (
     "AgentOS approvals bot: new lead drafts for your approval, plus Chief of Staff updates.\n\n"
     "/status - running or stopped, drafts waiting, today's tasks, next call\n"
@@ -161,6 +164,9 @@ def handle_callback(
         lead_id = None
     if lead_id is None or str(lead_id) != m.group(2) or "message_id" not in msg:
         return  # not ours / malformed: ignore
+    if m.group(1) in ("rr", "rd"):
+        _handle_request(factory, client, cq, user_id, lead_id, m.group(1) == "rr")
+        return
     approve = m.group(1) == "ap"
     outcome, status = _decide(factory, lead_id, approve, user_id)
     chat_id, message_id = user_id, msg["message_id"]
@@ -180,6 +186,72 @@ def handle_callback(
     else:
         client.edit_message(chat_id, message_id, "❌ Rejected.")
         client.answer_callback(cq["id"], "Rejected")
+
+
+# ---------------------------------------------------------------- voice-call requests
+
+
+def _audit(session: Session, tenant_id: uuid.UUID, user_id: int, action: str, task_id) -> None:
+    session.add(AuditEvent(
+        tenant_id=tenant_id, lead_id=None, actor=f"telegram:{user_id}", action=action,
+        data={"id": str(task_id)},
+    ))
+
+
+def _claim_request(
+    factory: sessionmaker[Session], task_id: uuid.UUID, run: bool, user_id: int
+) -> tuple[str, str | None, str]:
+    """Returns (outcome, current status, request text): stopped | missing | handled | done."""
+    tenant_id = settings.telegram_owner_tenant_id
+    with factory() as session:
+        if get_or_create_settings(session, tenant_id).stopped:
+            session.rollback()
+            return "stopped", None, ""
+        task = session.scalars(select(Task).where(
+            Task.id == task_id, Task.tenant_id == tenant_id, Task.project == "for-jarvis"
+        ).with_for_update()).first()
+        if task is None:
+            return "missing", None, ""
+        if task.status != TaskStatus.PENDING:
+            return "handled", task.status.value, ""
+        task.status = TaskStatus.IN_PROGRESS if run else TaskStatus.DROPPED
+        _audit(session, tenant_id, user_id, "request_approved" if run else "request_dismissed",
+               task.id)
+        text = task.title.removeprefix(openclaw.REQUEST_PREFIX)
+        session.commit()
+        return "done", None, text
+
+
+def _handle_request(
+    factory: sessionmaker[Session], client: TelegramClient, cq: dict, user_id: int,
+    task_id: uuid.UUID, run: bool,
+) -> None:
+    chat_id, message_id = user_id, cq["message"]["message_id"]
+    outcome, status, text = _claim_request(factory, task_id, run, user_id)
+    if outcome == "stopped":
+        client.answer_callback(cq["id"], "Stopped — resume first")
+    elif outcome == "missing":
+        client.answer_callback(cq["id"], "Request not found")
+    elif outcome == "handled":
+        client.answer_callback(cq["id"], "Already handled")
+        client.edit_message(chat_id, message_id, f"Already handled (status: {status}).")
+    elif not run:
+        client.edit_message(chat_id, message_id, "✖ Dismissed.")
+        client.answer_callback(cq["id"], "Dismissed")
+    elif openclaw.send(task_id, text):
+        client.edit_message(
+            chat_id, message_id, "▶ Jarvis is on it. He'll report here and call you when done."
+        )
+        client.answer_callback(cq["id"], "Sent to Jarvis")
+    else:
+        openclaw.revert(
+            factory, settings.telegram_owner_tenant_id, task_id, f"telegram:{user_id}"
+        )
+        client.edit_message(chat_id, message_id, "⚠️ Couldn't reach Jarvis. Tap Run to retry.", [
+            {"text": "▶ Run", "callback_data": f"rr:{task_id}"},
+            {"text": "✖ Dismiss", "callback_data": f"rd:{task_id}"},
+        ])
+        client.answer_callback(cq["id"], "Couldn't reach Jarvis")
 
 
 # ---------------------------------------------------------------- dispatch + loop

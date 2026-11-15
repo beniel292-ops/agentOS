@@ -29,6 +29,9 @@ class Settings(BaseSettings):
     telegram_owner_user_id: int | None = None  # private chat id == user id
     telegram_owner_tenant_id: uuid.UUID | None = None
     web_app_url: str = "http://localhost:3000"
+    # OpenClaw inbound webhook: approved voice-call requests are handed to Jarvis here.
+    openclaw_hooks_url: str = "http://127.0.0.1:18789/hooks/agent"
+    openclaw_hooks_token: str = ""
     # Voice (agentring): the worker places calls, the MCP server gives the voice AI its tools.
     agentring_bin: str = (
         "/Users/user/Documents/Archive/Desktop/agentring/daemon/.venv/bin/agentring"

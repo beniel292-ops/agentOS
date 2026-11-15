@@ -12,6 +12,7 @@ from sqlalchemy import delete, func, select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session, sessionmaker
 
+from app import openclaw
 from app.config import settings
 from app.models import (
     CallKind,
@@ -229,7 +230,41 @@ def build_call_skipped(session: Session, tenant_id: uuid.UUID, ref: str) -> Buil
     return "📞 " + template.format(k=label), None
 
 
+def _request_task(session: Session, tenant_id: uuid.UUID, ref: str) -> Task | None:
+    try:
+        task = session.scalars(select(Task).where(
+            Task.id == uuid.UUID(ref), Task.tenant_id == tenant_id
+        )).first()
+    except ValueError:
+        return None
+    return task if task is not None and task.project == "for-jarvis" else None
+
+
+def build_request_sent(session: Session, tenant_id: uuid.UUID, ref: str) -> Built:
+    """FYI after a voice request went to Jarvis (no buttons)."""
+    task = _request_task(session, tenant_id, ref)
+    if task is None:
+        return None
+    title = task.title.removeprefix(openclaw.REQUEST_PREFIX)
+    return f'📞 Sent to Jarvis from your call:\n"{title}"', None
+
+
+def build_request_failed(session: Session, tenant_id: uuid.UUID, ref: str) -> Built:
+    """The hand-off failed: offer Run (retry) or Dismiss."""
+    task = _request_task(session, tenant_id, ref)
+    if task is None or task.status != TaskStatus.PENDING:
+        return None
+    title = task.title.removeprefix(openclaw.REQUEST_PREFIX)
+    text = f'⚠️ Couldn\'t reach Jarvis with your request:\n"{title}"\n\nRun it with Jarvis?'
+    return text, [
+        {"text": "▶ Run", "callback_data": f"rr:{task.id}"},
+        {"text": "✖ Dismiss", "callback_data": f"rd:{task.id}"},
+    ]
+
+
 BUILDERS = {
+    "request_sent": build_request_sent,
+    "request_failed": build_request_failed,
     "draft_ready": build_draft_ready,
     "lead_failed": build_lead_failed,
     "callback_scheduled": build_callback_scheduled,
