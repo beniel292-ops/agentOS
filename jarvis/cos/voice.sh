@@ -8,7 +8,7 @@ case "$1" in
     (cd "$AR/deploy" && docker compose -p agentring -f docker-compose.local.yml --env-file .env.local up -d)
     if ! lsof -nP -iTCP:8765 -sTCP:LISTEN >/dev/null 2>&1; then
       (cd "$V" && VIRTUAL_ENV="$V/s2s" PATH="$V/s2s/bin:$PATH" nohup s2s/bin/speech-to-speech serve \
-        --mac-optimal-settings --tts kokoro --llm_backend chat-completions \
+        --mac-optimal-settings --tts kokoro --no_enable_live_transcription --llm_backend chat-completions \
         --responses_api_base_url http://127.0.0.1:11434/v1 --responses_api_api_key none \
         --model_name ministral-voice --parakeet_tdt_language en \
         --host 127.0.0.1 --port 8765 > s2s.log 2>&1 &)
