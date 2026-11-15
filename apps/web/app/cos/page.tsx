@@ -9,12 +9,23 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { apiFetch } from "@/lib/api";
+import { API_URL, apiFetch } from "@/lib/api";
 
 type Role = "owner" | "member";
 type Task = { id: string; title: string; status: string; priority: number; due_date: string | null };
 type Call = { id: string; kind: string; status: string; due_at: string; reason: string | null };
-type CosSettings = { stopped: boolean; stopped_at: string | null; stopped_by: string | null };
+type CosSettings = {
+  stopped: boolean;
+  stopped_at: string | null;
+  stopped_by: string | null;
+  timezone: string;
+  morning_time: string;
+  evening_time: string;
+  quiet_start: string;
+  quiet_end: string;
+  max_calls_per_day: number;
+  min_gap_minutes: number;
+};
 type AgentKey = { id: string; name: string; scopes: string[]; key_prefix: string; revoked_at: string | null };
 
 const SCOPES = [
@@ -90,6 +101,188 @@ function StopCard({
             </Button>
           )}
         </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+type Draft = {
+  morning_time: string;
+  evening_time: string;
+  quiet_start: string;
+  quiet_end: string;
+  max_calls_per_day: string;
+  min_gap_minutes: string;
+  timezone: string;
+};
+
+const toDraft = (s: CosSettings): Draft => ({
+  morning_time: s.morning_time.slice(0, 5),
+  evening_time: s.evening_time.slice(0, 5),
+  quiet_start: s.quiet_start.slice(0, 5),
+  quiet_end: s.quiet_end.slice(0, 5),
+  max_calls_per_day: String(s.max_calls_per_day),
+  min_gap_minutes: String(s.min_gap_minutes),
+  timezone: s.timezone,
+});
+
+function validTz(name: string) {
+  try {
+    new Intl.DateTimeFormat("en", { timeZone: name });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function validate(d: Draft): Partial<Record<keyof Draft, string>> {
+  const e: Partial<Record<keyof Draft, string>> = {};
+  for (const k of ["morning_time", "evening_time", "quiet_start", "quiet_end"] as const) {
+    if (!/^\d{2}:\d{2}$/.test(d[k])) e[k] = "Required.";
+  }
+  if (!e.quiet_start && !e.quiet_end && d.quiet_start === d.quiet_end) {
+    e.quiet_end = "Must differ from the start.";
+  }
+  const range = (k: "max_calls_per_day" | "min_gap_minutes", lo: number, hi: number) => {
+    const v = Number(d[k]);
+    if (d[k].trim() === "" || !Number.isInteger(v) || v < lo || v > hi) e[k] = `Whole number from ${lo} to ${hi}.`;
+  };
+  range("max_calls_per_day", 1, 20);
+  range("min_gap_minutes", 5, 240);
+  if (!d.timezone.trim()) e.timezone = "Required.";
+  else if (!validTz(d.timezone.trim())) e.timezone = "Unknown timezone (e.g. Asia/Kolkata).";
+  return e;
+}
+
+function errorText(detail: unknown): string {
+  if (typeof detail === "string") return detail;
+  if (Array.isArray(detail)) {
+    return detail
+      .map((x) => (x && typeof x === "object" && "msg" in x ? String((x as { msg: unknown }).msg) : ""))
+      .filter(Boolean)
+      .join("; ");
+  }
+  return "";
+}
+
+function CallSettingsCard({
+  settings,
+  role,
+  onChange,
+}: {
+  settings: CosSettings;
+  role: Role | null;
+  onChange: () => void;
+}) {
+  const { getToken } = useAuth();
+  const [draft, setDraft] = useState<Draft>(() => toDraft(settings));
+  const [busy, setBusy] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [apiError, setApiError] = useState<string | null>(null);
+  const [showErrors, setShowErrors] = useState(false);
+
+  const owner = role === "owner";
+  const readOnly = !owner;
+  const errors = validate(draft);
+  const base = toDraft(settings);
+  const keys = Object.keys(base) as (keyof Draft)[];
+  const changed = keys.filter((k) => draft[k].trim() !== base[k]);
+
+  const set = (k: keyof Draft, v: string) => {
+    setDraft((d) => ({ ...d, [k]: v }));
+    setSaved(false);
+    setApiError(null);
+  };
+
+  async function save(e: React.FormEvent) {
+    e.preventDefault();
+    setSaved(false);
+    setApiError(null);
+    setShowErrors(true);
+    if (Object.keys(errors).length > 0 || changed.length === 0) return;
+    const body: Record<string, string | number> = {};
+    for (const k of changed) {
+      const v = draft[k].trim();
+      body[k] = k === "max_calls_per_day" || k === "min_gap_minutes" ? Number(v) : v;
+    }
+    setBusy(true);
+    try {
+      const r = await fetch(`${API_URL}/v1/cos/settings`, {
+        method: "PUT",
+        headers: { Authorization: `Bearer ${await getToken()}`, "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      if (!r.ok) {
+        const j = await r.json().catch(() => null);
+        setApiError(errorText(j?.detail) || `Could not save (error ${r.status}).`);
+        return;
+      }
+      setDraft(toDraft((await r.json()) as CosSettings));
+      setSaved(true);
+      setShowErrors(false);
+      onChange();
+    } catch {
+      setApiError("Could not reach the server.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const field = (k: keyof Draft, label: string, props: React.ComponentProps<typeof Input>, hint?: string) => (
+    <div className="flex flex-col gap-1.5">
+      <Label htmlFor={`cs-${k}`}>{label}</Label>
+      <Input
+        id={`cs-${k}`}
+        value={draft[k]}
+        readOnly={readOnly}
+        disabled={settings.stopped && owner}
+        onChange={(e) => set(k, e.target.value)}
+        {...props}
+      />
+      {hint && <p className="text-xs text-muted-foreground">{hint}</p>}
+      {showErrors && errors[k] && <p className="text-xs text-destructive">{errors[k]}</p>}
+    </div>
+  );
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Call settings</CardTitle>
+      </CardHeader>
+      <CardContent>
+        <form onSubmit={save} className="flex flex-col gap-4" noValidate>
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            {field("morning_time", "Morning call time", { type: "time" })}
+            {field("evening_time", "Evening call time", { type: "time" })}
+            {field("quiet_start", "Quiet hours from", { type: "time" })}
+            {field("quiet_end", "Quiet hours to", { type: "time" })}
+          </div>
+          <p className="-mt-2 text-xs text-muted-foreground">No calls in this window; it can cross midnight</p>
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            {field("max_calls_per_day", "Max calls per day", { type: "number", min: 1, max: 20, step: 1 })}
+            {field("min_gap_minutes", "Minimum gap between calls (minutes)", {
+              type: "number",
+              min: 5,
+              max: 240,
+              step: 1,
+            })}
+          </div>
+          {field("timezone", "Timezone", { type: "text", placeholder: "Asia/Kolkata" })}
+          {owner ? (
+            <div className="flex flex-wrap items-center gap-3">
+              <Button type="submit" disabled={busy || settings.stopped || changed.length === 0}>
+                Save
+              </Button>
+              {settings.stopped && (
+                <span className="text-sm text-muted-foreground">Resume the Chief of Staff to change settings.</span>
+              )}
+              {saved && <Badge variant="secondary">Saved</Badge>}
+              {apiError && <Badge variant="destructive">{apiError}</Badge>}
+            </div>
+          ) : (
+            <p className="text-sm text-muted-foreground">Only the owner can change these.</p>
+          )}
+        </form>
       </CardContent>
     </Card>
   );
@@ -395,6 +588,7 @@ function CosPanel() {
       <StopCard settings={settings} role={role} onChange={load} />
       <TasksCard tasks={tasks} onChange={load} />
       <CallsCard calls={calls} />
+      <CallSettingsCard settings={settings} role={role} onChange={load} />
       {role === "owner" && <KeysCard />}
     </>
   );
