@@ -11,7 +11,7 @@ case "$1" in
     if [ "${VOICE_BRAIN:-cloud}" = "local" ]; then
       LLM_URL=http://127.0.0.1:11434/v1; LLM_KEY=none; LLM_MODEL=ministral-voice
     else
-      LLM_URL=http://127.0.0.1:20128/v1; LLM_MODEL=kr/claude-haiku-4.5
+      LLM_URL=http://127.0.0.1:20128/v1; LLM_MODEL=no-think/kr/claude-haiku-4.5
       LLM_KEY=$(grep '^OMNIROUTE_API_KEY=' "$(cd "$(dirname "$0")/../.." && pwd)/.env" | cut -d= -f2)
     fi
     if ! lsof -nP -iTCP:8765 -sTCP:LISTEN >/dev/null 2>&1; then
