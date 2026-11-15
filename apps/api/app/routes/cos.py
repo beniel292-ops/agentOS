@@ -430,6 +430,36 @@ def _in_quiet(t: time, start: time, end: time) -> bool:
     return start <= t < end if start <= end else (t >= start or t < end)
 
 
+def _check_limits(
+    session: Session, tenant_id: uuid.UUID, s: CosSettings, due_at: datetime,
+    pending: ScheduledCall | None,
+) -> None:
+    """Daily call limit and minimum gap; moving a pending call adds no call."""
+    tz = ZoneInfo(s.timezone)
+    local = due_at.astimezone(tz)
+    day_start = datetime.combine(local.date(), time.min, tzinfo=tz)
+    day_end = datetime.combine(local.date() + timedelta(days=1), time.min, tzinfo=tz)
+    counted = select(func.count()).select_from(ScheduledCall).where(
+        ScheduledCall.tenant_id == tenant_id,
+        ScheduledCall.status.in_([CallStatus.PENDING, CallStatus.PLACED, CallStatus.COMPLETED]),
+        ScheduledCall.due_at >= day_start, ScheduledCall.due_at < day_end,
+    )
+    if pending is not None:
+        counted = counted.where(ScheduledCall.id != pending.id)
+    if session.scalar(counted) >= s.max_calls_per_day:
+        raise HTTPException(status_code=429, detail="Daily call limit reached")
+    last = session.scalar(
+        select(func.max(ScheduledCall.due_at)).where(
+            ScheduledCall.tenant_id == tenant_id,
+            ScheduledCall.status.in_([CallStatus.PLACED, CallStatus.COMPLETED]),
+        )
+    )
+    if last is not None and due_at < last + timedelta(minutes=s.min_gap_minutes):
+        raise HTTPException(
+            status_code=409, detail=f"Calls must be at least {s.min_gap_minutes} minutes apart"
+        )
+
+
 @router.post("/callbacks", status_code=201)
 def schedule_callback(
     data: CallbackIn,
@@ -455,28 +485,7 @@ def schedule_callback(
         ).with_for_update()
     ).first()
 
-    day_start = datetime.combine(local.date(), time.min, tzinfo=tz)
-    day_end = datetime.combine(local.date() + timedelta(days=1), time.min, tzinfo=tz)
-    counted = select(func.count()).select_from(ScheduledCall).where(
-        ScheduledCall.tenant_id == p.tenant_id,
-        ScheduledCall.status.in_([CallStatus.PENDING, CallStatus.PLACED, CallStatus.COMPLETED]),
-        ScheduledCall.due_at >= day_start, ScheduledCall.due_at < day_end,
-    )
-    if pending is not None:
-        counted = counted.where(ScheduledCall.id != pending.id)  # moving it adds no call
-    if session.scalar(counted) >= s.max_calls_per_day:
-        raise HTTPException(status_code=429, detail="Daily call limit reached")
-
-    last = session.scalar(
-        select(func.max(ScheduledCall.due_at)).where(
-            ScheduledCall.tenant_id == p.tenant_id,
-            ScheduledCall.status.in_([CallStatus.PLACED, CallStatus.COMPLETED]),
-        )
-    )
-    if last is not None and due_at < last + timedelta(minutes=s.min_gap_minutes):
-        raise HTTPException(
-            status_code=409, detail=f"Calls must be at least {s.min_gap_minutes} minutes apart"
-        )
+    _check_limits(session, p.tenant_id, s, due_at, pending)
 
     if pending is not None:
         pending.due_at, pending.reason = due_at, data.reason
@@ -495,6 +504,55 @@ def schedule_callback(
     _audit(session, p, "callback_scheduled", id=str(call.id), minutes=data.minutes)
     out = CallbackOut(**CallOut.model_validate(call).model_dump(), moved=False)
     _commit_and_notify(session, background, "callback_scheduled", _call_ref(out))
+    return out
+
+
+class CallNowIn(BaseModel):
+    reason: str = Field(min_length=1, max_length=300)
+
+
+@router.post("/calls/now", status_code=201)
+def call_now(
+    data: CallNowIn,
+    response: Response,
+    background: BackgroundTasks,
+    p: Annotated[Principal, Depends(require_write("calls:request"))],
+    session: Db,
+) -> CallbackOut:
+    """An agent asks Jarvis to phone the owner now (the worker places the call)."""
+    s = get_or_create_settings(session, p.tenant_id)
+    due_at = now()
+    if _in_quiet(due_at.astimezone(ZoneInfo(s.timezone)).time(), s.quiet_start, s.quiet_end):
+        raise HTTPException(
+            status_code=409,
+            detail=f"quiet hours until {s.quiet_end:%H:%M}; I'll message you instead",
+        )
+    reason = data.reason.strip()
+    if not reason:
+        raise HTTPException(status_code=422, detail="reason must not be blank")
+    pending = session.scalars(
+        select(ScheduledCall).where(
+            ScheduledCall.tenant_id == p.tenant_id, ScheduledCall.kind == CallKind.NOTIFY,
+            ScheduledCall.status == CallStatus.PENDING,
+        ).with_for_update()
+    ).first()
+    _check_limits(session, p.tenant_id, s, due_at, pending)
+    if pending is not None:
+        pending.due_at, pending.reason = due_at, reason
+        call, moved = pending, True
+        response.status_code = 200
+    else:
+        call, moved = ScheduledCall(tenant_id=p.tenant_id, kind=CallKind.NOTIFY, due_at=due_at,
+                                    reason=reason, created_by=p.actor), False
+        try:
+            with session.begin_nested():
+                session.add(call)
+        except IntegrityError:  # a concurrent request created the pending call first
+            raise HTTPException(status_code=409, detail="Call already pending, retry") from None
+    _audit(session, p, "call_requested", id=str(call.id), moved=moved)
+    out = CallbackOut(**CallOut.model_validate(call).model_dump(), moved=moved)
+    session.commit()  # the worker must see the row
+    background.add_task(queue.enqueue_place_calls)
     return out
 
 

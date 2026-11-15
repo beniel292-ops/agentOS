@@ -16,6 +16,7 @@ from app.config import settings
 from app.models import (
     CallKind,
     CallStatus,
+    Checkin,
     CosSettings,
     Draft,
     Lead,
@@ -181,12 +182,61 @@ def build_evening_summary(session: Session, tenant_id: uuid.UUID, ref: str) -> B
     return text, None
 
 
+CALL_LABEL = {CallKind.MORNING: "Morning call", CallKind.EVENING: "Evening call",
+              CallKind.CALLBACK: "Callback", CallKind.NOTIFY: "Jarvis note call"}
+SKIP_TEXT = {
+    "stopped": "Skipped the {k} call: Chief of Staff is stopped",
+    "quiet": "Skipped the {k} call: quiet hours",
+    "limit": "Skipped the {k} call: daily call limit reached",
+    "gap": "Skipped the {k} call: too soon after the last call",
+    "late": "Skipped the {k} call: it was too late to ring",
+    "missed": "Missed your {k} call.",
+    "error": "Couldn't place the {k} call.",
+}
+
+
+def build_call_summary(session: Session, tenant_id: uuid.UUID, ref: str) -> Built:
+    """ref = checkin id of an answered call: summary plus the start of the transcript."""
+    try:
+        checkin = session.scalars(select(Checkin).where(
+            Checkin.id == uuid.UUID(ref), Checkin.tenant_id == tenant_id
+        )).first()
+    except ValueError:
+        return None
+    if checkin is None:
+        return None
+    mins = max(1, round((checkin.ended_at - checkin.started_at).total_seconds() / 60)) \
+        if checkin.ended_at else 1
+    text = f"📞 {CALL_LABEL[checkin.kind]} done ({mins} min). {checkin.summary or ''}".rstrip()
+    if checkin.transcript:
+        text += f"\n\n{checkin.transcript[:1500]}"
+    return text, None
+
+
+def build_call_skipped(session: Session, tenant_id: uuid.UUID, ref: str) -> Built:
+    """ref = "<scheduled call id>:<why>"."""
+    call_id, _, why = ref.partition(":")
+    try:
+        call = session.scalars(select(ScheduledCall).where(
+            ScheduledCall.id == uuid.UUID(call_id), ScheduledCall.tenant_id == tenant_id
+        )).first()
+    except ValueError:
+        return None
+    template = SKIP_TEXT.get(why)
+    if call is None or template is None:
+        return None
+    label = {CallKind.NOTIFY: "Jarvis note"}.get(call.kind, call.kind.value)
+    return "📞 " + template.format(k=label), None
+
+
 BUILDERS = {
     "draft_ready": build_draft_ready,
     "lead_failed": build_lead_failed,
     "callback_scheduled": build_callback_scheduled,
     "opportunity": build_opportunity,
     "evening_summary": build_evening_summary,
+    "call_summary": build_call_summary,
+    "call_skipped": build_call_skipped,
 }
 
 

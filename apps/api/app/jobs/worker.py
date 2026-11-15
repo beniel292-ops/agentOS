@@ -7,6 +7,7 @@ from sqlalchemy import and_, or_, select
 from starlette.concurrency import run_in_threadpool
 
 from app.config import settings
+from app.cos.calls import CALL_TIMEOUT, place_due_calls
 from app.db import SessionLocal
 from app.jobs import queue
 from app.models import Lead, LeadStatus
@@ -92,7 +93,12 @@ async def requeue_stuck_leads(ctx) -> None:
 
 class WorkerSettings:
     functions = [ping, process_lead, notify]
-    cron_jobs = [cron(requeue_stuck_leads), cron(evening_summary)]  # once a minute each
+    # once a minute each. place_due_calls is also enqueued by name ("call me now"); it can run a
+    # whole phone call, so it gets its own timeout (arq registers cron jobs as functions too).
+    cron_jobs = [
+        cron(requeue_stuck_leads), cron(evening_summary),
+        cron(place_due_calls, timeout=CALL_TIMEOUT + 300),
+    ]
     redis_settings = RedisSettings.from_dsn(settings.redis_url)
     # Don't keep finished-job results: otherwise the same _job_id is blocked for an hour
     # and requeue_stuck_leads couldn't retry a lead that is still NEW.

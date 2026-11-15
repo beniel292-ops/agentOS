@@ -29,6 +29,17 @@ class Settings(BaseSettings):
     telegram_owner_user_id: int | None = None  # private chat id == user id
     telegram_owner_tenant_id: uuid.UUID | None = None
     web_app_url: str = "http://localhost:3000"
+    # Voice (agentring): the worker places calls, the MCP server gives the voice AI its tools.
+    agentring_bin: str = (
+        "/Users/user/Documents/Archive/Desktop/agentring/daemon/.venv/bin/agentring"
+    )
+    voice_mcp_url: str = "http://127.0.0.1:8787/mcp"
+    voice_provider: str = "local"
+    voice_agent_key: str = ""  # scoped agent key used only by the MCP server
+    # not AGENTOS_API_URL: .env already uses that name for the Docker agents
+    agentos_api_url: str = Field(
+        default="http://127.0.0.1:8000", validation_alias="VOICE_AGENTOS_API_URL"
+    )
 
     @property
     def telegram_enabled(self) -> bool:

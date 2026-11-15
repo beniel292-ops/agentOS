@@ -10,12 +10,16 @@ macOS/Linux with Docker, [uv](https://docs.astral.sh/uv/) (installs Python 3.12)
 
 ```bash
 make setup   # creates .env from .env.example, installs api + web deps
-make dev     # starts Postgres + Redis (Docker), API, worker, Telegram bot, web
+make dev     # starts Postgres + Redis (Docker), API, worker, Telegram bot, voice MCP server, web
 ```
 
 Open http://localhost:3000 and you should see **API: ok**.
 
 The Telegram approvals bot (`cd apps/api && uv run python -m app.telegram.bot`) also starts with `make dev`.
+
+Voice calls: the worker places scheduled calls (morning, evening, callbacks, "call me now") through
+agentring. The voice AI's 5 task tools are served by `cd apps/api && uv run python -m app.mcp_server`
+(127.0.0.1:8787, also in `make dev`). It needs `VOICE_AGENT_KEY` (see `.env.example`).
 Set `TELEGRAM_APPROVALS_BOT_TOKEN`, `TELEGRAM_OWNER_USER_ID` and `TELEGRAM_OWNER_TENANT_ID` in `.env` to
 turn it on; with an empty token it idles. Commands: `/status`, `/tasks`, `/stop`, `/resume`, `/help`.
 

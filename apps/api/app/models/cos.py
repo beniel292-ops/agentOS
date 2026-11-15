@@ -48,6 +48,7 @@ class CallKind(enum.StrEnum):
     MORNING = "morning"
     EVENING = "evening"
     CALLBACK = "callback"
+    NOTIFY = "notify"  # an agent asked for a call now
 
 
 class CallStatus(enum.StrEnum):
@@ -166,6 +167,10 @@ class ScheduledCall(Base):
         Index(
             "uq_scheduled_calls_pending_callback", "tenant_id", unique=True,
             postgresql_where=text("kind = 'callback' AND status = 'pending'"),
+        ),
+        Index(
+            "uq_scheduled_calls_pending_notify", "tenant_id", unique=True,
+            postgresql_where=text("kind = 'notify' AND status = 'pending'"),
         ),
         Index(
             "uq_scheduled_calls_daily_slot", "tenant_id", "kind",

@@ -42,6 +42,11 @@ async def enqueue_notify(kind: str, ref: str) -> None:
     await _enqueue("notify", kind, ref, job_id=f"notify:{kind}:{ref}")
 
 
+async def enqueue_place_calls() -> None:
+    """Ask the worker to place due calls now instead of at the next minute tick."""
+    await _enqueue("place_due_calls", job_id="place_due_calls:now")
+
+
 async def close_pool() -> None:
     global _pool
     if _pool is not None:
