@@ -768,6 +768,26 @@ async def _wait(seconds: float) -> None:
     await asyncio.sleep(seconds)
 
 
+class QuestionListed(QuestionOut):
+    context: str | None
+    created_at: datetime
+
+
+@router.get("/questions")
+def list_questions(
+    p: Annotated[Principal, Depends(require("calls:request"))],
+    session: Db,
+    limit: Annotated[int, Query(ge=1, le=50)] = 10,
+) -> list[QuestionListed]:
+    """Recent questions with their answers, newest first: an agent sees only its own
+    (so it can find an answer after losing the id)."""
+    q = select(Question).where(Question.tenant_id == p.tenant_id)
+    if not p.is_owner:
+        q = q.where(Question.asked_by == p.actor)
+    rows = session.scalars(q.order_by(Question.created_at.desc()).limit(limit))
+    return [QuestionListed.model_validate(r) for r in rows]
+
+
 @router.get("/questions/{question_id}")
 async def get_question(
     question_id: uuid.UUID,

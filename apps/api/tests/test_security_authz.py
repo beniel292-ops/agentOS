@@ -44,6 +44,7 @@ ROUTES = {
     ("POST", "/calls/now"): "calls:request",
     ("POST", "/questions"): "calls:request",
     ("POST", "/questions/answer"): "questions:answer",
+    ("GET", "/questions"): "calls:request",
     ("GET", "/questions/{question_id}"): "calls:request",
     ("POST", "/checkins"): "checkins:write",
     ("GET", "/checkins"): "checkins:read",
