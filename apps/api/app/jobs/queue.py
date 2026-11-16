@@ -35,6 +35,11 @@ async def enqueue_process_lead(lead_id: uuid.UUID | str, force: bool = False) ->
     )
 
 
+async def enqueue_send_reply(lead_id: uuid.UUID | str) -> None:
+    """Queue the email send for an APPROVED lead. The per-minute sweep covers failures."""
+    await _enqueue("send_reply", str(lead_id), job_id=f"send_reply:{lead_id}")
+
+
 async def enqueue_notify(kind: str, ref: str) -> None:
     """Queue a Telegram notification. Dedup is in the DB (notifications table)."""
     if not settings.telegram_enabled:

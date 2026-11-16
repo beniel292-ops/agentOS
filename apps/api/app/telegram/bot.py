@@ -1,7 +1,8 @@
 """Telegram approvals + Chief of Staff bot (long polling): `uv run python -m app.telegram.bot`.
 
 Only the owner (private chat, user id == chat id) is served. No free text ever reaches an AI.
-Approving only records the decision; sending email is a later step (rule 2: only the worker sends).
+Approving only records the decision; the worker's per-minute sweep then sends the email
+(rule 2: only the worker sends).
 """
 import logging
 import re
@@ -180,7 +181,7 @@ def handle_callback(
         client.edit_message(chat_id, message_id, f"Already handled (status: {shown}).")
     elif approve:
         client.edit_message(
-            chat_id, message_id, "✅ Approved. It will be sent once email sending is set up."
+            chat_id, message_id, "✅ Approved. The email goes out within a minute."
         )
         client.answer_callback(cq["id"], "Approved")
     else:

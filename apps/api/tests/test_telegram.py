@@ -178,7 +178,7 @@ def test_approve_flow(session, factory, client, make_lead, owner_user, tg):
     assert (ev.actor, ev.from_state, ev.to_state) == (
         f"telegram:{OWNER_ID}", "DRAFT_READY", "APPROVED")
     assert client.edits == [
-        (OWNER_ID, 55, "✅ Approved. It will be sent once email sending is set up.")]
+        (OWNER_ID, 55, "✅ Approved. The email goes out within a minute.")]
     assert client.answers[0][0] == "cb1"
     assert not client.sent  # nothing is emailed or messaged
 

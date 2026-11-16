@@ -29,6 +29,9 @@ class Settings(BaseSettings):
     telegram_owner_user_id: int | None = None  # private chat id == user id
     telegram_owner_tenant_id: uuid.UUID | None = None
     web_app_url: str = "http://localhost:3000"
+    # Resend: the worker sends approved replies. Both empty = email sending is off.
+    resend_api_key: str = ""
+    resend_from: str = ""
     # OpenClaw inbound webhook: approved voice-call requests are handed to Jarvis here.
     openclaw_hooks_url: str = "http://127.0.0.1:18789/hooks/agent"
     openclaw_hooks_token: str = ""
@@ -51,6 +54,10 @@ class Settings(BaseSettings):
     # Google Drive (read-only, owner's tenant only). Files are git-ignored, under secrets/.
     google_oauth_client_path: Path = ROOT_ENV.parent / "secrets" / "google-oauth-client.json"
     google_drive_token_path: Path = ROOT_ENV.parent / "secrets" / "google-drive-token.json"
+
+    @property
+    def email_configured(self) -> bool:
+        return bool(self.resend_api_key and self.resend_from)
 
     @property
     def telegram_enabled(self) -> bool:

@@ -111,6 +111,24 @@ def build_lead_failed(session: Session, tenant_id: uuid.UUID, ref: str) -> Built
     return text, _url_button("Open leads", web_url("/leads")) or None
 
 
+def build_lead_sent(session: Session, tenant_id: uuid.UUID, ref: str) -> Built:
+    lead = _lead(session, tenant_id, ref, LeadStatus.SENT)
+    if lead is None:
+        return None
+    return f"✉️ Sent to {_line(lead.name)} <{_line(lead.email)}>", None
+
+
+def build_send_failed(session: Session, tenant_id: uuid.UUID, ref: str) -> Built:
+    lead = _lead(session, tenant_id, ref, LeadStatus.APPROVED)
+    if lead is None:
+        return None
+    text = (
+        f"⚠️ Couldn't send to {_line(lead.name)} <{_line(lead.email)}>: {_v(lead.last_error)}\n"
+        "The lead stays approved."
+    )
+    return text, None
+
+
 def _local(dt: datetime, tz: str) -> datetime:
     return dt.astimezone(ZoneInfo(tz))
 
@@ -305,6 +323,8 @@ BUILDERS = {
     "request_failed": build_request_failed,
     "draft_ready": build_draft_ready,
     "lead_failed": build_lead_failed,
+    "lead_sent": build_lead_sent,
+    "send_failed": build_send_failed,
     "callback_scheduled": build_callback_scheduled,
     "opportunity": build_opportunity,
     "evening_summary": build_evening_summary,
