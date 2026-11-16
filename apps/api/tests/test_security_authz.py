@@ -29,6 +29,7 @@ FID = "abcdefghij1234"
 ROUTES = {
     ("POST", "/agent-keys"): OWNER_ONLY,
     ("GET", "/agent-keys"): OWNER_ONLY,
+    ("GET", "/activity"): OWNER_ONLY,
     ("POST", "/agent-keys/{key_id}/revoke"): OWNER_ONLY,
     ("GET", "/settings"): "tasks:read",
     ("PUT", "/settings"): OWNER_ONLY,

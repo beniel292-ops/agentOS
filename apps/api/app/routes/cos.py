@@ -348,6 +348,41 @@ def list_tasks(
     return [TaskOut.model_validate(t) for t in session.scalars(q)]
 
 
+SECURITY_ACTIONS = frozenset({
+    "cos_stopped", "cos_resumed", "agent_key_created", "agent_key_revoked",
+    "settings_updated", "intake_key_rotated", "request_handed_off",
+})
+
+
+class ActivityOut(Out):
+    id: int
+    actor: str
+    action: str
+    data: dict
+    at: datetime
+
+
+@router.get("/activity")
+def list_activity(
+    p: Annotated[Principal, Depends(require_owner)],
+    session: Db,
+    view: Annotated[str, Query(pattern="^(all|agents|security)$")] = "all",
+    limit: Annotated[int, Query(ge=1, le=200)] = 50,
+    before: int | None = None,
+) -> list[ActivityOut]:
+    """Chief of Staff audit events (no lead events), newest first. Read-only."""
+    q = select(AuditEvent).where(
+        AuditEvent.tenant_id == p.tenant_id, AuditEvent.lead_id.is_(None))
+    if view == "agents":
+        q = q.where(AuditEvent.actor.startswith("agent:"))
+    elif view == "security":
+        q = q.where(AuditEvent.action.in_(SECURITY_ACTIONS))
+    if before is not None:
+        q = q.where(AuditEvent.id < before)
+    q = q.order_by(AuditEvent.id.desc()).limit(limit)
+    return [ActivityOut.model_validate(e) for e in session.scalars(q)]
+
+
 MAX_HANDOFFS_PER_HOUR = 10
 
 

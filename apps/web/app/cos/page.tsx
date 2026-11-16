@@ -1,9 +1,8 @@
 "use client";
 
-import { useAuth, useOrganization } from "@clerk/nextjs";
+import { useAuth } from "@clerk/nextjs";
 import { useEffect, useState } from "react";
 
-import { AppHeader } from "@/components/app-header";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -11,21 +10,9 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { API_URL, apiFetch } from "@/lib/api";
 
-type Role = "owner" | "member";
+import { useCos, type CosSettings, type Role } from "./cos-context";
+
 type Task = { id: string; title: string; status: string; priority: number; due_date: string | null };
-type Call = { id: string; kind: string; status: string; due_at: string; reason: string | null };
-type CosSettings = {
-  stopped: boolean;
-  stopped_at: string | null;
-  stopped_by: string | null;
-  timezone: string;
-  morning_time: string;
-  evening_time: string;
-  quiet_start: string;
-  quiet_end: string;
-  max_calls_per_day: number;
-  min_gap_minutes: number;
-};
 type AgentKey = { id: string; name: string; scopes: string[]; key_prefix: string; revoked_at: string | null };
 
 const SCOPES = [
@@ -39,72 +26,6 @@ const SCOPES = [
   "memory:write",
   "stop",
 ];
-
-const fmt = (iso: string) => new Date(iso).toLocaleString();
-
-function StopCard({
-  settings,
-  role,
-  onChange,
-}: {
-  settings: CosSettings;
-  role: Role | null;
-  onChange: () => void;
-}) {
-  const { getToken } = useAuth();
-  const [busy, setBusy] = useState(false);
-  const [failed, setFailed] = useState(false);
-
-  async function post(path: string) {
-    setBusy(true);
-    setFailed(false);
-    try {
-      await apiFetch(getToken, `/v1/cos/${path}`, { method: "POST" });
-      onChange();
-    } catch {
-      setFailed(true);
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  return (
-    <Card className={settings.stopped ? "border-destructive" : undefined}>
-      <CardContent className="flex flex-wrap items-center justify-between gap-4">
-        {settings.stopped ? (
-          <div>
-            <p className="text-lg font-semibold text-destructive">Chief of Staff is stopped</p>
-            <p className="text-sm text-muted-foreground">
-              Agents cannot change anything.
-              {settings.stopped_by && ` Stopped by ${settings.stopped_by}.`}
-            </p>
-          </div>
-        ) : (
-          <div>
-            <p className="text-lg font-semibold">Chief of Staff is running</p>
-            <p className="text-sm text-muted-foreground">STOP blocks all agent writes at once.</p>
-          </div>
-        )}
-        <div className="flex items-center gap-3">
-          {failed && <Badge variant="destructive">Something went wrong.</Badge>}
-          {settings.stopped ? (
-            role === "owner" ? (
-              <Button onClick={() => post("resume")} disabled={busy}>
-                RESUME
-              </Button>
-            ) : (
-              <span className="text-sm text-muted-foreground">Only the owner can resume.</span>
-            )
-          ) : (
-            <Button variant="destructive" size="lg" onClick={() => post("stop")} disabled={busy}>
-              STOP
-            </Button>
-          )}
-        </div>
-      </CardContent>
-    </Card>
-  );
-}
 
 type Draft = {
   morning_time: string;
@@ -373,39 +294,6 @@ function TasksCard({ tasks, onChange }: { tasks: Task[]; onChange: () => void })
   );
 }
 
-function CallsCard({ calls }: { calls: Call[] }) {
-  const pending = calls.find((c) => c.kind === "callback" && c.status === "pending");
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Calls</CardTitle>
-      </CardHeader>
-      <CardContent className="flex flex-col gap-3">
-        {pending ? (
-          <p className="text-sm">
-            Pending callback at <span className="font-medium">{fmt(pending.due_at)}</span>
-            {pending.reason && ` (${pending.reason})`}
-          </p>
-        ) : (
-          <p className="text-sm text-muted-foreground">No callback pending.</p>
-        )}
-        {calls.length > 0 && (
-          <ul className="flex flex-col divide-y text-sm">
-            {calls.map((c) => (
-              <li key={c.id} className="flex items-center justify-between py-1.5">
-                <span>
-                  {c.kind} · {fmt(c.due_at)}
-                </span>
-                <Badge variant="secondary">{c.status}</Badge>
-              </li>
-            ))}
-          </ul>
-        )}
-      </CardContent>
-    </Card>
-  );
-}
-
 function KeysCard() {
   const { getToken } = useAuth();
   const [keys, setKeys] = useState<AgentKey[]>([]);
@@ -545,12 +433,10 @@ function KeysCard() {
   );
 }
 
-function CosPanel() {
+export default function CosOverview() {
   const { getToken } = useAuth();
-  const [role, setRole] = useState<Role | null>(null);
-  const [settings, setSettings] = useState<CosSettings | null>(null);
+  const { role, settings, reload } = useCos();
   const [tasks, setTasks] = useState<Task[]>([]);
-  const [calls, setCalls] = useState<Call[]>([]);
   const [failed, setFailed] = useState(false);
 
   const [n, setN] = useState(0);
@@ -560,19 +446,9 @@ function CosPanel() {
     let cancelled = false;
     (async () => {
       try {
-        const me = await apiFetch<{ user: { role: Role } }>(getToken, "/v1/me");
-        // call notes are owner-only (checkins:read)
-        const owner = me.data.user.role === "owner";
-        const [s, t, c] = await Promise.all([
-          apiFetch<CosSettings>(getToken, "/v1/cos/settings"),
-          apiFetch<Task[]>(getToken, "/v1/cos/tasks?due=today"),
-          owner ? apiFetch<Call[]>(getToken, "/v1/cos/calls?limit=10") : { data: [] as Call[] },
-        ]);
+        const t = await apiFetch<Task[]>(getToken, "/v1/cos/tasks?due=today");
         if (cancelled) return;
-        setRole(me.data.user.role);
-        setSettings(s.data);
         setTasks(t.data);
-        setCalls(c.data);
         setFailed(false);
       } catch {
         if (!cancelled) setFailed(true);
@@ -584,28 +460,11 @@ function CosPanel() {
   }, [getToken, n]);
 
   if (failed) return <Badge variant="destructive">Something went wrong. Try again.</Badge>;
-  if (!settings) return <Badge variant="secondary">Loading...</Badge>;
   return (
     <>
-      <StopCard settings={settings} role={role} onChange={load} />
       <TasksCard tasks={tasks} onChange={load} />
-      {role === "owner" && <CallsCard calls={calls} />}
-      <CallSettingsCard settings={settings} role={role} onChange={load} />
+      <CallSettingsCard settings={settings} role={role} onChange={reload} />
       {role === "owner" && <KeysCard />}
     </>
-  );
-}
-
-export default function CosPage() {
-  const { isLoaded, organization } = useOrganization();
-  return (
-    <div className="mx-auto flex min-h-screen w-full max-w-3xl flex-col gap-6 p-6">
-      <AppHeader />
-      {!isLoaded ? null : organization ? (
-        <CosPanel key={organization.id} />
-      ) : (
-        <p className="text-muted-foreground">Create an organization on the Home page to continue.</p>
-      )}
-    </div>
   );
 }

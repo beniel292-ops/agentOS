@@ -98,6 +98,12 @@ Status: **proposal, waiting for approval**. Nothing here is built yet. Date: 202
 - Telegram approval text is never cut (long drafts go in several messages, buttons last); lead name/company are one line.
 - Call lifecycle events are audited; `audit_events` also blocks `TRUNCATE`.
 
+### Dashboard (Phase 10)
+
+- `/cos` section in the web app; the STOP/RESUME card shows on every page. Pages: Overview (today's tasks, call settings, agent keys), Tasks (all, filter by status), Opportunities (owner saves/dismisses/verifies; links shown only for http(s), with their host), Calls and Activity (owner only).
+- Calls page: scheduled calls and check-in transcripts, rendered as plain text only.
+- Activity page reads `GET /v1/cos/activity?view=all|agents|security&limit=&before=` (owner only, works while stopped; Chief of Staff events only, no lead events). Security log = stop/resume, agent keys, settings, intake key rotation, Jarvis hand-offs. Refused requests (401/403/423) are not audited, so they don't appear.
+
 ## 5. What I need from you
 
 1. **An Android phone** for the agentring app (no iPhone app exists). If you only have an iPhone, the fallback is Telegram voice notes + summaries (no ringing calls).
