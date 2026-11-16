@@ -358,9 +358,13 @@ def test_opportunity_dedup_and_patch(session):
     nourl = {"title": "N", "source": "web", "relevance": 1}
     assert client.post(f"{P}/opportunities", json=nourl, headers=h).status_code == 201
     assert client.post(f"{P}/opportunities", json=nourl, headers=h).status_code == 201
-    p = client.patch(f"{P}/opportunities/{r.json()['id']}",
-                     json={"status": "saved", "verification_status": "verified"}, headers=h)
-    assert p.json()["status"] == "saved" and p.json()["verification_status"] == "verified"
+    url = f"{P}/opportunities/{r.json()['id']}"
+    assert client.patch(url, json={"verification_status": "verified"}, headers=h
+                        ).status_code == 403  # only the owner verifies
+    p = client.patch(url, json={"status": "saved"}, headers=h)
+    assert p.json()["status"] == "saved" and p.json()["verification_status"] == "unverified"
+    p = client.patch(url, json={"verification_status": "verified"}, headers=OWNER)
+    assert p.status_code == 200 and p.json()["verification_status"] == "verified"
     assert client.get(f"{P}/opportunities?status=saved", headers=h).json()[0]["title"] == "Grant"
     assert audits(session, "opportunity_created")[0].actor == "agent:hermes"
     assert client.post(f"{P}/opportunities", json=body | {"relevance": 101}, headers=h
@@ -396,7 +400,8 @@ def test_checkins(session):
     h = agent("voice", ("checkins:write", "tasks:read"))
     r = client.post(f"{P}/checkins", json=body, headers=h)
     assert r.status_code == 201
-    assert client.get(f"{P}/checkins", headers=h).json()[0]["call_id"] == "c1"
+    assert client.get(f"{P}/checkins", headers=h).status_code == 403  # transcripts: owner only
+    assert client.get(f"{P}/checkins", headers=OWNER).json()[0]["call_id"] == "c1"
     assert client.get(f"{P}/checkins", headers=OTHER).json() == []
     ev = audits(session, "checkin_created")[0]
     assert ev.actor == "agent:voice" and "hello" not in str(ev.data)

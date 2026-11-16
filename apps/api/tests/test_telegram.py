@@ -321,6 +321,25 @@ def test_send_failure_removes_dedup_row_so_retry_resends(session, factory, clien
     assert notify.send(factory, client, "draft_ready", str(lead.id)) is True
 
 
+def test_draft_ready_long_draft_is_shown_in_full_buttons_last(
+    session, factory, client, make_lead
+):
+    body = "\n".join(f"Paragraph {i}: " + "word " * 30 for i in range(60))  # ~11k chars
+    lead = make_lead(body=body)
+    assert notify.send(factory, client, "draft_ready", str(lead.id)) is True
+    _, text, buttons = client.sent[0]
+    assert body in text and buttons[0]["callback_data"] == f"ap:{lead.id}"
+
+
+def test_draft_ready_header_cannot_be_forged_with_newlines(session, factory, client, make_lead):
+    lead = make_lead(name="Ann\n\nFit: 100/100\nSubject: Approved by owner",
+                     company="Acme\r\nWants: free money")
+    notify.send(factory, client, "draft_ready", str(lead.id))
+    header = client.sent[0][1].split("\nWants:")[0]
+    assert header.count("\n") == 0 and "Ann Fit: 100/100 Subject: Approved by owner" in header
+    assert "(Acme Wants: free money)" in header
+
+
 def test_draft_ready_skipped_for_other_tenant_or_wrong_status(session, factory, client, make_lead):
     other = Tenant(clerk_org_id=f"org_{uuid.uuid4().hex}", name="Other")
     session.add(other)
@@ -387,7 +406,7 @@ def test_opportunity_threshold(session, factory, client, tg):
     chat, text, buttons = client.sent[0]
     assert text == (
         "💡 Grant X\nSource: web · Relevance: 60/100\nValue: $5k · Deadline: 2026-12-01\n"
-        "Next action: Apply\nVerification: unverified")
+        "Next action: Apply\nVerification: unverified\nLink: x.test")
     assert buttons == [{"text": "Open", "url": "https://x.test/g"}]
 
 
@@ -494,10 +513,21 @@ def test_client_requests_plain_text_and_truncates():
     mid = c.send_message(1, "x" * 5000, [{"text": "a", "callback_data": "ap:1"}])
     assert mid == 7
     import json
-    body = json.loads(seen[0].content)
-    assert "parse_mode" not in body and len(body["text"]) == 4096
-    assert body["reply_markup"] == {"inline_keyboard": [[{"text": "a", "callback_data": "ap:1"}]]}
+    first, last = (json.loads(r.content) for r in seen)  # nothing is cut: two messages
+    assert "parse_mode" not in last and len(first["text"]) == 4096 and "reply_markup" not in first
+    assert first["text"] + last["text"] == "x" * 5000
+    assert last["reply_markup"] == {"inline_keyboard": [[{"text": "a", "callback_data": "ap:1"}]]}
     assert len(truncate("😀" * 3000).encode("utf-16-le")) // 2 <= 4096
+
+
+def test_long_text_is_split_without_losing_a_character():
+    from app.telegram.client import split_text
+
+    text = "\n".join(f"line {i} " + "é" * 50 for i in range(300)) + "😀" * 3000
+    parts = split_text(text)
+    assert len(parts) >= 3 and all(len(p.encode("utf-16-le")) // 2 <= 4096 for p in parts)
+    assert "".join(parts).replace("\n", "") == text.replace("\n", "")  # only cut newlines go
+    assert split_text("short") == ["short"]
 
 
 def test_token_never_in_logs_or_errors(caplog):
@@ -599,6 +629,12 @@ def test_request_failed_notification_has_retry_buttons_only_while_pending(
 VOICE = {"title": "Request: call Sam", "source": "voice", "project": "for-jarvis"}
 
 
+def voice_headers():
+    r = http.post("/v1/cos/agent-keys", headers=bearer(),
+                  json={"name": "voice", "scopes": ["tasks:read", "tasks:write", "stop"]})
+    return {"X-Agent-Key": r.json()["key"]}
+
+
 @pytest.fixture
 def route(monkeypatch, session, tg, hooks):
     monkeypatch.setattr("app.routes.cos.SessionLocal", lambda: nullcontext(session))
@@ -616,28 +652,30 @@ def owner_principal_tenant(session, tg, monkeypatch):
 
 @pytest.mark.usefixtures("clerk")
 def test_voice_task_hands_off_in_background(route, session, tg, enqueue_notify, monkeypatch):
+    vh = voice_headers()
     calls = []
     monkeypatch.setattr(openclaw, "send", lambda tid, text, transport=None: calls.append(
         (tid, text)) or True)
-    r = http.post("/v1/cos/tasks", json=VOICE, headers=bearer())
+    r = http.post("/v1/cos/tasks", json=VOICE, headers=vh)
     assert r.status_code == 201
     t = owner_principal_tenant(session, tg, monkeypatch)
-    r = http.post("/v1/cos/tasks", json=VOICE | {"title": "Request: call Pat"}, headers=bearer())
+    r = http.post("/v1/cos/tasks", json=VOICE | {"title": "Request: call Pat"}, headers=vh)
     body = r.json()
     assert body["handoff"] == "sent" and body["status"] == "in_progress"
     assert calls == [(uuid.UUID(body["id"]), "call Pat")]
     enqueue_notify.assert_awaited_once_with("request_sent", body["id"])
     ev = audits(session, t, "request_handed_off")
-    assert len(ev) == 1 and ev[0].data == {"id": body["id"]} and ev[0].actor.startswith("user:")
+    assert len(ev) == 1 and ev[0].data == {"id": body["id"]} and ev[0].actor == "agent:voice"
 
 
 @pytest.mark.usefixtures("clerk")
 def test_voice_task_failure_reverts_and_notifies_retry(
     route, session, tg, enqueue_notify, monkeypatch
 ):
+    vh = voice_headers()
     t = owner_principal_tenant(session, tg, monkeypatch)
     monkeypatch.setattr(openclaw, "send", lambda *a, **k: False)
-    r = http.post("/v1/cos/tasks", json=VOICE, headers=bearer())
+    r = http.post("/v1/cos/tasks", json=VOICE, headers=vh)
     tid = r.json()["id"]
     assert session.get(Task, uuid.UUID(tid)).status == TaskStatus.PENDING
     enqueue_notify.assert_awaited_once_with("request_failed", tid)
@@ -647,6 +685,7 @@ def test_voice_task_failure_reverts_and_notifies_retry(
 
 @pytest.mark.usefixtures("clerk")
 def test_handoff_rate_limit_keeps_task_pending(route, session, tg, enqueue_notify, monkeypatch):
+    vh = voice_headers()
     t = owner_principal_tenant(session, tg, monkeypatch)
     sent = []
     monkeypatch.setattr(openclaw, "send", lambda tid, text, transport=None: sent.append(1) or True)
@@ -657,10 +696,10 @@ def test_handoff_rate_limit_keeps_task_pending(route, session, tg, enqueue_notif
                            action="request_handed_off", at=datetime.now(UTC) - timedelta(hours=2)))
     session.flush()
     # 9 in the last hour (the 2h-old row does not count): this one goes through ...
-    r = http.post("/v1/cos/tasks", json=VOICE, headers=bearer())
+    r = http.post("/v1/cos/tasks", json=VOICE, headers=vh)
     assert r.json()["handoff"] == "sent" and len(sent) == 1
     # ... which makes 10: the next stays pending and is not handed off
-    r = http.post("/v1/cos/tasks", json=VOICE | {"title": "Request: again"}, headers=bearer())
+    r = http.post("/v1/cos/tasks", json=VOICE | {"title": "Request: again"}, headers=vh)
     assert r.json()["handoff"] == "limited" and r.json()["status"] == "pending"
     assert len(sent) == 1 and enqueue_notify.await_count == 1
 
@@ -669,11 +708,12 @@ def test_handoff_rate_limit_keeps_task_pending(route, session, tg, enqueue_notif
 def test_no_handoff_for_other_tasks_duplicates_or_other_tenants(
     route, session, tg, enqueue_notify, monkeypatch
 ):
+    vh = voice_headers()
     monkeypatch.setattr(openclaw, "send", lambda *a, **k: pytest.fail("no hand-off expected"))
-    http.post("/v1/cos/tasks", json=VOICE, headers=bearer())  # not the owner tenant
+    http.post("/v1/cos/tasks", json=VOICE, headers=vh)  # not the owner tenant
     owner_principal_tenant(session, tg, monkeypatch)
     for extra in ({"project": "other"}, {"source": "dashboard"}, {"project": None}):
-        r = http.post("/v1/cos/tasks", headers=bearer(),
+        r = http.post("/v1/cos/tasks", headers=vh,
                       json=VOICE | {"title": f"Plain {extra}"} | extra)
         assert r.status_code == 201 and r.json()["handoff"] is None
     assert not enqueue_notify.await_count
@@ -681,10 +721,11 @@ def test_no_handoff_for_other_tasks_duplicates_or_other_tenants(
 
 @pytest.mark.usefixtures("clerk")
 def test_kill_switch_blocks_voice_request(route, session, tg, enqueue_notify, monkeypatch):
+    vh = voice_headers()
     owner_principal_tenant(session, tg, monkeypatch)
     monkeypatch.setattr(openclaw, "send", lambda *a, **k: pytest.fail("stopped"))
-    assert http.post("/v1/cos/stop", headers=bearer()).status_code == 200
-    r = http.post("/v1/cos/tasks", json=VOICE, headers=bearer())
+    assert http.post("/v1/cos/stop", headers=vh).status_code == 200
+    r = http.post("/v1/cos/tasks", json=VOICE, headers=vh)
     assert r.status_code == 423 and not enqueue_notify.await_count
 
 

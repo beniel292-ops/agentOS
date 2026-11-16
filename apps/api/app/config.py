@@ -2,7 +2,7 @@ import base64
 import uuid
 from pathlib import Path
 
-from pydantic import Field, field_validator
+from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 ROOT_ENV = Path(__file__).resolve().parents[3] / ".env"
@@ -36,7 +36,11 @@ class Settings(BaseSettings):
     agentring_bin: str = (
         "/Users/user/Documents/Archive/Desktop/agentring/daemon/.venv/bin/agentring"
     )
-    voice_mcp_url: str = "http://127.0.0.1:8787/mcp"
+    # The MCP server has no auth header support on the agentring side, so the secret is the URL
+    # path: /mcp/<token>. Every other path is a 404. The server refuses to start without it.
+    voice_mcp_token: str = ""
+    voice_mcp_url: str = "http://127.0.0.1:8787/mcp"  # derived below; a full override must
+    # contain the token
     voice_provider: str = "local"
     voice_agent_key: str = ""  # scoped agent key used only by the MCP server
     # not AGENTOS_API_URL: .env already uses that name for the Docker agents
@@ -55,6 +59,13 @@ class Settings(BaseSettings):
             and self.telegram_owner_user_id
             and self.telegram_owner_tenant_id
         )
+
+    @model_validator(mode="after")
+    def _mcp_url_has_token(self):
+        if self.voice_mcp_token and self.voice_mcp_token not in self.voice_mcp_url:
+            origin = self.voice_mcp_url.split("/mcp")[0].rstrip("/")
+            self.voice_mcp_url = f"{origin}/mcp/{self.voice_mcp_token}"
+        return self
 
     @field_validator("google_oauth_client_path", "google_drive_token_path")
     @classmethod

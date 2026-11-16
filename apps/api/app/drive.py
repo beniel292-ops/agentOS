@@ -102,7 +102,7 @@ def recent(
 def read_text(
     file_id: str, max_chars: int = 20000, transport: httpx.BaseTransport | None = None
 ) -> dict:
-    if not FILE_ID.match(file_id):
+    if not FILE_ID.fullmatch(file_id):
         raise ValueError("invalid file id")
     max_chars = _clamp(max_chars, 1000, 50000)
     url = f"{API}/{file_id}"

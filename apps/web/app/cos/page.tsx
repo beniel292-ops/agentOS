@@ -560,11 +560,13 @@ function CosPanel() {
     let cancelled = false;
     (async () => {
       try {
-        const [me, s, t, c] = await Promise.all([
-          apiFetch<{ user: { role: Role } }>(getToken, "/v1/me"),
+        const me = await apiFetch<{ user: { role: Role } }>(getToken, "/v1/me");
+        // call notes are owner-only (checkins:read)
+        const owner = me.data.user.role === "owner";
+        const [s, t, c] = await Promise.all([
           apiFetch<CosSettings>(getToken, "/v1/cos/settings"),
           apiFetch<Task[]>(getToken, "/v1/cos/tasks?due=today"),
-          apiFetch<Call[]>(getToken, "/v1/cos/calls?limit=10"),
+          owner ? apiFetch<Call[]>(getToken, "/v1/cos/calls?limit=10") : { data: [] as Call[] },
         ]);
         if (cancelled) return;
         setRole(me.data.user.role);
@@ -587,7 +589,7 @@ function CosPanel() {
     <>
       <StopCard settings={settings} role={role} onChange={load} />
       <TasksCard tasks={tasks} onChange={load} />
-      <CallsCard calls={calls} />
+      {role === "owner" && <CallsCard calls={calls} />}
       <CallSettingsCard settings={settings} role={role} onChange={load} />
       {role === "owner" && <KeysCard />}
     </>

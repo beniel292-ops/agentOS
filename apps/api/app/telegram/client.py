@@ -25,10 +25,26 @@ class TelegramError(Exception):
     """Message holds only the method name and a status or exception type: never URL or token."""
 
 
-def truncate(text: str) -> str:
-    def units(t: str) -> int:
-        return len(t.encode("utf-16-le")) // 2
+def units(t: str) -> int:
+    return len(t.encode("utf-16-le")) // 2
 
+
+def split_text(text: str) -> list[str]:
+    """Pieces that each fit in one message, nothing dropped. Cuts at a line break when it can."""
+    parts = []
+    while units(text) > MAX_TEXT:
+        head = text[:MAX_TEXT]
+        while units(head) > MAX_TEXT:
+            head = head[:-1]
+        cut = head.rfind("\n")
+        if cut > len(head) // 2:
+            head = head[:cut]
+        parts.append(head)
+        text = text[len(head):].removeprefix("\n")
+    return [*parts, text]
+
+
+def truncate(text: str) -> str:
     if units(text) <= MAX_TEXT:
         return text
     text = text[: MAX_TEXT - 1]
@@ -63,7 +79,13 @@ class TelegramClient:
         return body["result"]
 
     def send_message(self, chat_id: int, text: str, buttons: list[Button] | None = None) -> int:
-        payload = {"chat_id": chat_id, "text": truncate(text), "disable_web_page_preview": True}
+        """Long text is sent in full as several messages (never cut short: the owner approves
+        what they read); the buttons go on the last one, whose id is returned."""
+        *first, last = split_text(text)
+        for part in first:
+            self._call("sendMessage", {"chat_id": chat_id, "text": part,
+                                       "disable_web_page_preview": True})
+        payload = {"chat_id": chat_id, "text": last, "disable_web_page_preview": True}
         if buttons:
             payload["reply_markup"] = _markup(buttons)
         return self._call("sendMessage", payload)["message_id"]

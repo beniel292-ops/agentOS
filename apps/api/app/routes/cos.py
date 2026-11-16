@@ -22,6 +22,7 @@ from app.config import settings
 from app.cos_auth import (
     SCOPES,
     Principal,
+    _ensure_running,
     require,
     require_owner,
     require_owner_write,
@@ -54,6 +55,13 @@ log = logging.getLogger(__name__)
 router = APIRouter(prefix="/v1/cos")
 
 Db = Annotated[Session, Depends(get_db)]
+VOICE_ACTOR = "agent:voice"
+ASKERS = {"agent:openclaw": "Jarvis", "agent:hermes": "Fury"}
+
+
+def asker_name(asked_by: str) -> str:
+    """Who really asked, for the phone prompt and Telegram: never a name an agent chose."""
+    return ASKERS.get(asked_by, asked_by.removeprefix("agent:")[:50])
 OPEN = (TaskStatus.PENDING, TaskStatus.IN_PROGRESS)
 
 
@@ -361,6 +369,9 @@ def _start_handoff(
     (The kill switch already answered 423 in require_write.)"""
     if p.tenant_id != settings.telegram_owner_tenant_id:
         return "unavailable"
+    # one lock per tenant, so concurrent requests cannot pass the hourly cap together
+    session.execute(select(CosSettings.tenant_id).where(
+        CosSettings.tenant_id == p.tenant_id).with_for_update())
     recent = session.scalar(
         select(func.count()).select_from(AuditEvent).where(
             AuditEvent.tenant_id == p.tenant_id, AuditEvent.action == "request_handed_off",
@@ -385,6 +396,8 @@ def create_task(
     session: Db,
 ) -> TaskCreated:
     handoff = None
+    if data.source == TaskSource.VOICE and p.actor != VOICE_ACTOR:
+        raise HTTPException(status_code=403, detail="Only the voice assistant can use source=voice")
     norm = _norm(data.title)
     values = data.model_dump() | {
         "tenant_id": p.tenant_id, "title_norm": norm, "status": TaskStatus.PENDING,
@@ -416,6 +429,9 @@ def patch_task(
 ) -> TaskOut:
     task = _get(session, Task, p.tenant_id, task_id)
     sent = data.model_fields_set
+    if task.project == "for-jarvis" and data.title is not None:
+        # the owner confirmed this text by voice; it is what Telegram "Run" would send
+        raise HTTPException(status_code=422, detail="A request for Jarvis cannot be retitled")
     changed: list[str] = []
     for field in ("status", "priority", "title"):
         value = getattr(data, field)
@@ -493,7 +509,8 @@ def _check_limits(
     day_end = datetime.combine(local.date() + timedelta(days=1), time.min, tzinfo=tz)
     counted = select(func.count()).select_from(ScheduledCall).where(
         ScheduledCall.tenant_id == tenant_id,
-        ScheduledCall.status.in_([CallStatus.PENDING, CallStatus.PLACED, CallStatus.COMPLETED]),
+        ScheduledCall.status.in_(
+            [CallStatus.PENDING, CallStatus.PLACED, CallStatus.COMPLETED, CallStatus.MISSED]),
         ScheduledCall.due_at >= day_start, ScheduledCall.due_at < day_end,
     )
     if pending is not None:
@@ -503,7 +520,8 @@ def _check_limits(
     last = session.scalar(
         select(func.max(ScheduledCall.due_at)).where(
             ScheduledCall.tenant_id == tenant_id,
-            ScheduledCall.status.in_([CallStatus.PLACED, CallStatus.COMPLETED]),
+            ScheduledCall.status.in_(
+                [CallStatus.PLACED, CallStatus.COMPLETED, CallStatus.MISSED]),
         )
     )
     if last is not None and due_at < last + timedelta(minutes=s.min_gap_minutes):
@@ -588,6 +606,8 @@ def call_now(
             ScheduledCall.status == CallStatus.PENDING,
         ).with_for_update()
     ).first()
+    if pending is not None and pending.created_by != p.actor:
+        raise HTTPException(status_code=409, detail="Another agent's call note is still pending")
     _check_limits(session, p.tenant_id, s, due_at, pending)
     if pending is not None:
         pending.due_at, pending.reason = due_at, reason
@@ -678,7 +698,7 @@ def ask_question(
     row.call_id = call.id
     _audit(session, p, "question_asked", id=str(row.id), call_id=str(call.id))
     out = QuestionAsked(id=row.id, status=row.status)
-    session.commit()  # the worker must see the rows
+    _commit_and_notify(session, background, "question_asked", str(row.id))  # worker sees rows
     background.add_task(queue.enqueue_place_calls)
     return out
 
@@ -727,7 +747,10 @@ async def get_question(
 
     def read() -> QuestionOut:
         with factory() as s:
-            out = QuestionOut.model_validate(_get(s, Question, p.tenant_id, question_id))
+            row = _get(s, Question, p.tenant_id, question_id)
+            if not p.is_owner and row.asked_by != p.actor:  # agents see only their own questions
+                raise HTTPException(status_code=404, detail="Not found")
+            out = QuestionOut.model_validate(row)
             s.commit()
             return out
 
@@ -759,7 +782,7 @@ def cancel_callback(
 
 @router.get("/calls")
 def list_calls(
-    p: Annotated[Principal, Depends(require("tasks:read"))],
+    p: Annotated[Principal, Depends(require("checkins:read"))],  # reasons are call notes
     session: Db,
     limit: Annotated[int, Query(ge=1, le=200)] = 20,
 ) -> list[CallOut]:
@@ -808,7 +831,7 @@ def create_checkin(
 
 @router.get("/checkins")
 def list_checkins(
-    p: Annotated[Principal, Depends(require("tasks:read"))],
+    p: Annotated[Principal, Depends(require("checkins:read"))],  # transcripts
     session: Db,
     limit: Annotated[int, Query(ge=1, le=200)] = 20,
 ) -> list[CheckinOut]:
@@ -911,6 +934,8 @@ def patch_opportunity(
     p: Annotated[Principal, Depends(require_write("opportunities:write"))],
     session: Db,
 ) -> OppOut:
+    if data.verification_status is not None and not p.is_owner:
+        raise HTTPException(status_code=403, detail="Only the owner can verify an opportunity")
     row = _get(session, Opportunity, p.tenant_id, opp_id)
     changed = []
     for field in ("status", "verification_status"):
@@ -984,6 +1009,10 @@ def list_memory(
 # ---------------------------------------------------------------- Google Drive (read-only)
 
 
+MAX_DRIVE_PER_HOUR = 120
+DRIVE_ACTIONS = ("drive_search", "drive_recent", "drive_read")
+
+
 async def _drive_call(
     session: Session, p: Principal, action: str, call, data
 ) -> Any:
@@ -991,6 +1020,12 @@ async def _drive_call(
     (ids and counts only, never the query or file text) is written after it succeeds."""
     if p.tenant_id != settings.telegram_owner_tenant_id:
         raise HTTPException(status_code=404, detail="Not found")
+    _ensure_running(session, p.tenant_id)  # reads stop too: STOP means nothing is touched
+    used = session.scalar(select(func.count()).select_from(AuditEvent).where(
+        AuditEvent.tenant_id == p.tenant_id, AuditEvent.action.in_(DRIVE_ACTIONS),
+        AuditEvent.at >= func.now() - text("interval '1 hour'")))
+    if used >= MAX_DRIVE_PER_HOUR:
+        raise HTTPException(status_code=429, detail="Drive request limit reached, try later")
     if not drive.configured():
         raise HTTPException(status_code=503, detail="Drive not connected")
     session.commit()

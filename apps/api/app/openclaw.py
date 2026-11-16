@@ -11,13 +11,13 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.config import settings
-from app.models import AuditEvent, Task, TaskStatus
+from app.models import AuditEvent, CosSettings, Task, TaskStatus
 
 REQUEST_PREFIX = "Request: "
 
 MAX_REQUEST_CHARS = 1000
 _CONTROL = re.compile(r"[\x00-\x1f\x7f-\x9f]")
-_FENCE = re.compile(r"<\s*/?\s*request\s*>", re.IGNORECASE)
+_FENCE = re.compile(r"<\s*/?\s*request\b[^>]*>", re.IGNORECASE)
 
 
 def clean_request(text: str) -> str:
@@ -94,8 +94,8 @@ def handoff(
     factory: sessionmaker[Session], tenant_id: uuid.UUID, task_id: uuid.UUID, actor: str
 ) -> str | None:
     """Send an in_progress for-jarvis task to OpenClaw. Returns the Telegram notification kind:
-    request_sent or request_failed (None if there was nothing to do). No DB lock is held
-    during the HTTP call."""
+    request_sent or request_failed (None if there was nothing to do or the kill switch is on).
+    No DB lock is held during the HTTP call."""
     with factory() as session:
         task = session.scalars(select(Task).where(
             Task.id == task_id, Task.tenant_id == tenant_id, Task.project == "for-jarvis"
@@ -103,7 +103,12 @@ def handoff(
         if task is None or task.status != TaskStatus.IN_PROGRESS:
             return None
         text = task.title.removeprefix(REQUEST_PREFIX)
+        stopped = session.scalar(
+            select(CosSettings.stopped).where(CosSettings.tenant_id == tenant_id))
         session.commit()
+    if stopped:  # STOP may have been pressed after the route committed: do not send
+        revert(factory, tenant_id, task_id, actor)
+        return None
     if send(task_id, text):
         return "request_sent"
     revert(factory, tenant_id, task_id, actor)

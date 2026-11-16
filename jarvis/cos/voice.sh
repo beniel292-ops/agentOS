@@ -23,13 +23,18 @@ case "$1" in
       echo "voice server starting (about 1 minute)..."
     fi
     # Answer calls from the phone: voice AI with ONLY the 5 AgentOS task tools, no command agents.
-    if ! pgrep -f "agentring serve" >/dev/null; then
-      P="$(cd "$(dirname "$0")/../.." && pwd)/apps/api/app/cos/prompts"
+    ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
+    # The task tools live at an unguessable URL path (the token); read it here, never print it.
+    VT=$(grep '^VOICE_MCP_TOKEN=' "$ROOT/.env" | cut -d= -f2)
+    if [ -z "$VT" ]; then
+      echo "VOICE_MCP_TOKEN is missing in .env (run make setup); not answering phone calls"
+    elif ! pgrep -f "agentring serve" >/dev/null; then
+      P="$ROOT/apps/api/app/cos/prompts"
       I=~/.agentring/inbound-instructions.md
       { sed "s/{now}/$(date '+%A %d %B %Y, %H:%M') (Asia\/Kolkata)/" "$P/common.md"; echo; cat "$P/inbound.md"; } > "$I"
       chmod 600 "$I"
       env -i PATH=/usr/bin:/bin HOME="$HOME" nohup "$AR/daemon/.venv/bin/agentring" serve --ai --provider local \
-        --agents none --mcp http://127.0.0.1:8787/mcp \
+        --agents none --mcp "http://127.0.0.1:8787/mcp/$VT" \
         --tools list_tasks,add_task,update_task,schedule_callback,ask_jarvis,answer_jarvis \
         --instructions "@$I" > "$V/serve.log" 2>&1 &
       echo "answering calls from the phone (agentring serve)"

@@ -78,6 +78,15 @@ def test_calls_now_moves_pending(session, enqueue_calls):
     assert row.reason == "second"
 
 
+def test_calls_now_cannot_overwrite_another_agents_note(session, enqueue_calls):
+    a = agent("openclaw", ("calls:request",))
+    b = agent("hermes", ("calls:request",))
+    assert now_call(a, "from openclaw").status_code == 201
+    assert now_call(b, "from hermes").status_code == 409
+    assert session.scalars(select(ScheduledCall)).one().reason == "from openclaw"
+    assert now_call(a, "openclaw again").status_code == 200  # its own note can be moved
+
+
 def test_calls_now_quiet_hours(session, enqueue_calls, monkeypatch):
     monkeypatch.setattr("app.routes.cos.now", lambda: datetime(2026, 11, 14, 18, 0, tzinfo=UTC))
     r = now_call()  # 23:30 in Asia/Kolkata
@@ -261,6 +270,58 @@ async def test_daily_limit_and_gap_cancel(session, owner, enqueue_notify):
     assert call2.status == CallStatus.CANCELLED and not runner.calls
 
 
+async def test_missed_rings_count_toward_limit_and_gap(session, owner, enqueue_notify):
+    session.add(CosSettings(tenant_id=owner.id, max_calls_per_day=1))
+    add_call(session, owner, status=CallStatus.MISSED, due=NOW - timedelta(hours=2))
+    call = add_call(session, owner)
+    runner = Runner()
+    await run(runner)
+    assert call.status == CallStatus.CANCELLED and not runner.calls
+    enqueue_notify.assert_awaited_once_with("call_skipped", f"{call.id}:limit")
+    session.get(CosSettings, owner.id).max_calls_per_day = 6
+    add_call(session, owner, status=CallStatus.MISSED, due=NOW - timedelta(minutes=2))
+    call2 = add_call(session, owner, CallKind.NOTIFY, reason="x")
+    await run(runner)
+    assert call2.status == CallStatus.CANCELLED and not runner.calls
+
+
+def _events(session, call):
+    return [e.action for e in audits_for(session, call)]
+
+
+def audits_for(session, call):
+    from app.models import AuditEvent
+
+    return list(session.scalars(select(AuditEvent).where(
+        AuditEvent.data["id"].astext == str(call.id), AuditEvent.action.like("call_%"),
+    ).order_by(AuditEvent.id)))
+
+
+async def test_call_lifecycle_is_audited_ids_only(session, owner, enqueue_notify):
+    done = add_call(session, owner, CallKind.CALLBACK, NOW - timedelta(minutes=1))
+    late = add_call(session, owner, CallKind.NOTIFY, NOW - timedelta(minutes=45),
+                    status=CallStatus.PENDING)
+    await run(Runner())
+    assert _events(session, late) == ["call_cancelled"]
+    assert _events(session, done) == ["call_placed", "call_completed"]
+    for e in audits_for(session, done) + audits_for(session, late):
+        assert e.actor == "system:placer" and set(e.data) == {"id"}  # no transcript, no text
+
+
+async def test_missed_call_is_audited(session, owner, enqueue_notify):
+    missed = add_call(session, owner, CallKind.CALLBACK, NOW - timedelta(minutes=1))
+    await run(Runner(out={**ANSWERED, "answered": False, "transcript": []}))
+    assert _events(session, missed) == ["call_placed", "call_missed"]
+
+
+def test_audit_events_cannot_be_truncated(session):
+    from sqlalchemy import text
+    from sqlalchemy.exc import DBAPIError
+
+    with pytest.raises(DBAPIError, match="append-only"), session.begin_nested():
+        session.execute(text("TRUNCATE audit_events"))
+
+
 async def test_lock_held_means_no_dial(session, owner):
     call = add_call(session, owner)
     runner = Runner()
@@ -268,11 +329,11 @@ async def test_lock_held_means_no_dial(session, owner):
     assert call.status == CallStatus.PENDING and not runner.calls
 
 
-async def test_stale_call_is_missed_not_dialed(session, owner, enqueue_notify):
+async def test_stale_call_is_cancelled_not_dialed(session, owner, enqueue_notify):
     call = add_call(session, owner, due=NOW - timedelta(minutes=31))
     runner = Runner()
     await run(runner)
-    assert call.status == CallStatus.MISSED and not runner.calls
+    assert call.status == CallStatus.CANCELLED and not runner.calls
     enqueue_notify.assert_awaited_once_with("call_skipped", f"{call.id}:late")
 
 

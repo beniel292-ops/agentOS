@@ -216,3 +216,33 @@ def test_errors_map(owner_tenant, fake_drive, monkeypatch):
 def test_bad_id_is_422(owner_tenant, files):
     assert client.get(f"{P}/files/bad/text", headers=OWNER).status_code == 422
     assert client.get(f"{P}/search", params={"q": ""}, headers=OWNER).status_code == 422
+
+
+def test_reads_blocked_while_stopped(owner_tenant, fake_drive):
+    assert client.post("/v1/cos/stop", headers=OWNER).status_code == 200
+    assert client.get(f"{P}/search", params={"q": "x"}, headers=OWNER).status_code == 423
+    assert client.get(f"{P}/recent", headers=OWNER).status_code == 423
+    assert client.get(f"{P}/files/{FID}/text", headers=OWNER).status_code == 423
+    assert client.post("/v1/cos/resume", headers=OWNER).status_code == 200
+    assert client.get(f"{P}/search", params={"q": "x"}, headers=OWNER).status_code == 200
+
+
+def test_hourly_cap_of_120_drive_requests(session, owner_tenant, fake_drive):
+    from datetime import UTC, datetime, timedelta
+
+    for _ in range(118):
+        session.add(AuditEvent(tenant_id=owner_tenant.id, lead_id=None, actor="agent:x",
+                               action="drive_search", data={"count": 1}))
+    session.add(AuditEvent(tenant_id=owner_tenant.id, lead_id=None, actor="agent:x", data={},
+                           action="drive_read", at=datetime.now(UTC) - timedelta(hours=2)))
+    session.flush()  # 118 in the last hour; the 2h-old one does not count
+    assert client.get(f"{P}/search", params={"q": "x"}, headers=OWNER).status_code == 200  # 119
+    assert client.get(f"{P}/recent", headers=OWNER).status_code == 200  # 120
+    for path in ("search?q=x", "recent", f"files/{FID}/text"):
+        assert client.get(f"{P}/{path}", headers=OWNER).status_code == 429
+
+
+def test_file_id_must_match_whole_string(files):
+    for bad in (FID + "\n", "\n" + FID, FID + " ", "short"):
+        with pytest.raises(ValueError):
+            drive.read_text(bad)

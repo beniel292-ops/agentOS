@@ -25,6 +25,10 @@ WANT=$(grep '^AGENTRING_HOST_IP=' ~/Documents/Archive/Desktop/agentring/deploy/.
 echo "4/5 Local voice + answering phone calls (MCP tools come up with the app)..."
 until curl -s -m 3 "http://$WANT:8080/healthz" >/dev/null; do sleep 2; done  # the answering service needs the relay up
 ./jarvis/cos/voice.sh start >/dev/null 2>&1
+# The answering service needs the task tools (started by make dev): start it again once they answer
+# (any HTTP code means up; the real path is secret). voice.sh start skips parts already running.
+(until [ "$(curl -s -o /dev/null -m 3 -w '%{http_code}' http://127.0.0.1:8787/)" != "000" ]; do sleep 3; done
+ sleep 5; ./jarvis/cos/voice.sh start >/dev/null 2>&1) &
 
 echo "5/5 AgentOS app (API, worker, Telegram bot, task tools, web)..."
 echo "    Status in another terminal: ./jarvis/jarvis.sh status && ./jarvis/cos/voice.sh status"

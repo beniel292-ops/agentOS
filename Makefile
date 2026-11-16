@@ -2,6 +2,7 @@
 
 setup:
 	@test -f .env || cp .env.example .env
+	@sh scripts/ensure_env_secrets.sh
 	cd apps/api && uv sync
 	cd apps/web && pnpm install
 	@test -L apps/web/.env.local || test -e apps/web/.env.local || ln -s ../../.env apps/web/.env.local

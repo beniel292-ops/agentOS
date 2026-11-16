@@ -36,8 +36,8 @@ async def test_exactly_six_tools():
 
 async def test_list_tasks(api):
     out = await m.list_tasks()
-    assert out == ("1. Write the report (priority high)\n2. Call the bank (priority normal)\n"
-                   "3. Call mum (priority low)")
+    assert out == (m.DATA_NOTE + "\n1. Write the report (priority high)\n"
+                   "2. Call the bank (priority normal)\n3. Call mum (priority low)")
     assert api.calls[0][2]["params"]["due"] == "today"
 
 
@@ -137,3 +137,39 @@ async def test_api_error_is_a_sentence(api):
 
 def test_server_binds_loopback():
     assert m.mcp.settings.host == "127.0.0.1"
+
+
+TOKEN = "t" * 32
+
+
+def test_server_refuses_to_start_without_a_token(monkeypatch):
+    monkeypatch.setattr(m.settings, "voice_agent_key", "k")
+    for bad in ("", "short", "has/slash" + "x" * 20):
+        monkeypatch.setattr(m.settings, "voice_mcp_token", bad)
+        with pytest.raises(SystemExit):
+            m.main()
+
+
+def test_endpoint_only_at_the_secret_path_and_no_access_log(monkeypatch):
+    from starlette.testclient import TestClient
+
+    seen = {}
+    monkeypatch.setattr(m.settings, "voice_agent_key", "k")
+    monkeypatch.setattr(m.settings, "voice_mcp_token", TOKEN)
+    monkeypatch.setattr(m.mcp.settings, "streamable_http_path", "/mcp")  # restored afterwards
+    monkeypatch.setattr(m.uvicorn, "run", lambda app, **kw: seen.update(app=app, **kw))
+    m.main()
+    assert seen["access_log"] is False and seen["host"] == "127.0.0.1"
+    assert [r.path for r in seen["app"].routes] == [f"/mcp/{TOKEN}"]
+    c = TestClient(seen["app"])
+    for path in ("/mcp", "/mcp/", "/mcp/wrong", f"/mcp/{TOKEN}x", "/"):
+        assert c.post(path, json={}).status_code == 404
+
+
+def test_mcp_url_is_derived_from_the_token():
+    from app.config import Settings
+
+    s = Settings(voice_mcp_token=TOKEN, voice_mcp_url="http://127.0.0.1:8787/mcp")
+    assert s.voice_mcp_url == f"http://127.0.0.1:8787/mcp/{TOKEN}"
+    s = Settings(voice_mcp_token=TOKEN, voice_mcp_url="http://10.0.0.5:9000/mcp/old")
+    assert s.voice_mcp_url == f"http://10.0.0.5:9000/mcp/{TOKEN}"  # old override cannot leak in

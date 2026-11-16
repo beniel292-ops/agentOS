@@ -16,11 +16,12 @@ from app.models import AgentKey, CosSettings, UserRole
 SCOPES = frozenset({
     "tasks:read", "tasks:write", "callbacks:write", "checkins:write", "opportunities:read",
     "opportunities:write", "memory:read", "memory:write", "stop", "calls:request",
-    "questions:answer", "drive:read",
+    "questions:answer", "drive:read", "checkins:read",
 })
 READ_SCOPES = frozenset(s for s in SCOPES if s.endswith(":read"))
-# Drive is the owner's own account: members never get it
-MEMBER_SCOPES = (READ_SCOPES - {"drive:read"}) | {"tasks:write", "callbacks:write", "stop"}
+# Drive is the owner's own account and call transcripts/notes are private: members never get them
+OWNER_ONLY_READS = {"drive:read", "checkins:read"}
+MEMBER_SCOPES = (READ_SCOPES - OWNER_ONLY_READS) | {"tasks:write", "callbacks:write", "stop"}
 
 
 @dataclass

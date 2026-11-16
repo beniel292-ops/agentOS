@@ -86,6 +86,18 @@ Status: **proposal, waiting for approval**. Nothing here is built yet. Date: 202
 | Google Drive | OAuth `drive.readonly`, your account only, token file mode 600; no write scopes |
 | Secrets | `.env` files only (git-ignored), never logged or sent to models |
 
+### Security hardening (Phase 9)
+
+- Voice→Jarvis hand-off only for the `agent:voice` key (`source=voice` is 403 for anyone else); hand-off count is taken under a per-tenant lock; the job re-checks STOP right before sending; request titles are not editable.
+- Voice MCP server only at `/mcp/<VOICE_MCP_TOKEN>` (no access log; refuses to start without the token).
+- Redis requires `REDIS_PASSWORD` (arq unpickles jobs).
+- Missed calls count toward the daily cap and gap; never-dialled "late" calls are cancelled, not missed.
+- Call transcripts and notes (`/checkins`, `/calls`) need the owner-only `checkins:read` scope.
+- Phone prompt: never take passwords/codes/card details; task and question text is data. Questions send a Telegram FYI when queued; agents read only their own questions; one agent cannot overwrite another's call note.
+- Drive reads obey STOP and are capped at 120 per hour per tenant; only the owner can mark an opportunity verified.
+- Telegram approval text is never cut (long drafts go in several messages, buttons last); lead name/company are one line.
+- Call lifecycle events are audited; `audit_events` also blocks `TRUNCATE`.
+
 ## 5. What I need from you
 
 1. **An Android phone** for the agentring app (no iPhone app exists). If you only have an iPhone, the fallback is Telegram voice notes + summaries (no ringing calls).

@@ -31,7 +31,7 @@ from app.models import (
     Task,
     TaskStatus,
 )
-from app.routes.cos import get_or_create_settings, today_open_tasks
+from app.routes.cos import asker_name, get_or_create_settings, today_open_tasks
 from app.telegram.client import Button, TelegramClient, TelegramError
 
 log = logging.getLogger(__name__)
@@ -42,6 +42,11 @@ Built = tuple[str, list[Button] | None] | None
 def now() -> datetime:
     """Module-level clock so tests can monkeypatch it."""
     return datetime.now(UTC)
+
+
+def _line(value) -> str:
+    """One line: a lead's name or company must not be able to start a fake header line."""
+    return " ".join(str(value).split())
 
 
 def _v(value) -> str:
@@ -83,9 +88,8 @@ def build_draft_ready(session: Session, tenant_id: uuid.UUID, ref: str) -> Built
     d = session.scalars(select(Draft).where(Draft.lead_id == lead.id)).first()
     if a is None or d is None:
         return None
-    who = f"{lead.name} ({lead.company}) <{lead.email}>" if lead.company else (
-        f"{lead.name} <{lead.email}>"
-    )
+    name, company = _line(lead.name), _line(lead.company or "")
+    who = f"{name} ({company}) <{lead.email}>" if company else f"{name} <{lead.email}>"
     text = (
         f"📩 New lead: {who}\nWants: {a.intent}\n"
         f"Service: {_v(a.service)} · Budget: {_v(a.budget)} · Urgency: {_v(a.urgency)} · "
@@ -103,7 +107,7 @@ def build_lead_failed(session: Session, tenant_id: uuid.UUID, ref: str) -> Built
     lead = _lead(session, tenant_id, ref, LeadStatus.FAILED)
     if lead is None:
         return None
-    text = f"⚠️ Couldn't process lead {lead.name}: {_v(lead.last_error)}"
+    text = f"⚠️ Couldn't process lead {_line(lead.name)}: {_v(lead.last_error)}"
     return text, _url_button("Open leads", web_url("/leads")) or None
 
 
@@ -143,6 +147,8 @@ def build_opportunity(session: Session, tenant_id: uuid.UUID, ref: str) -> Built
         f"Next action: {_v(opp.next_action)}\nVerification: {opp.verification_status.value}"
     )
     url = opp.url if opp.url and opp.url.startswith(("http://", "https://")) else None
+    if url:  # show where "Open" goes, so a lookalike link is visible before the tap
+        text += f"\nLink: {urlsplit(url).hostname or '-'}"
     return text, _url_button("Open", url) or None
 
 
@@ -276,10 +282,24 @@ def build_question_answered(session: Session, tenant_id: uuid.UUID, ref: str) ->
         return None
     if q is None or q.status != QuestionStatus.ANSWERED:
         return None
-    return f"📞 Jarvis asked: {q.question}\nYou answered: {q.answer}", None
+    return f"📞 {asker_name(q.asked_by)} asked: {q.question}\nYou answered: {q.answer}", None
+
+
+def build_question_asked(session: Session, tenant_id: uuid.UUID, ref: str) -> Built:
+    """FYI when an agent queues a question for a call, so the owner sees what it will ask."""
+    try:
+        q = session.scalars(select(Question).where(
+            Question.id == uuid.UUID(ref), Question.tenant_id == tenant_id
+        )).first()
+    except ValueError:
+        return None
+    if q is None:
+        return None
+    return f"📞 {asker_name(q.asked_by)} wants to ask you by phone:\n{q.question}", None
 
 
 BUILDERS = {
+    "question_asked": build_question_asked,
     "question_answered": build_question_answered,
     "request_sent": build_request_sent,
     "request_failed": build_request_failed,
