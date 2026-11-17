@@ -160,3 +160,29 @@ def test_sample_leads_build_prompts(fake):
         extract_lead(Lead(**s))
     injected = fake["calls"][-1][1]["messages"][1]["content"]
     assert injected.count("</lead>") == 1
+
+
+@pytest.mark.parametrize(("model", "base", "sent", "timeout"), [
+    ("ollama/qwen-agent", "http://localhost:11434/v1", "qwen-agent", 150),
+    ("agy/gemini-x", "http://localhost:20128/v1", "agy/gemini-x", 60),
+])
+def test_local_models_go_to_ollama(monkeypatch, model, base, sent, timeout):
+    seen = {}
+
+    class FakeOpenAI:
+        def __init__(self, base_url, api_key, max_retries, timeout):
+            seen.update(base_url=base_url.rstrip("/"), timeout=timeout)
+            self.chat = self
+            self.completions = self
+
+        def create(self, model, **kwargs):
+            seen["model"] = model
+            return "ok"
+
+    monkeypatch.setattr(client, "OpenAI", FakeOpenAI)
+    monkeypatch.setattr(settings, "ollama_base_url", "http://localhost:11434/v1")
+    monkeypatch.setattr(settings, "omniroute_base_url", "http://localhost:20128/v1")
+    monkeypatch.setattr(settings, "ai_timeout_seconds", 60)
+    monkeypatch.setattr(settings, "ai_local_timeout_seconds", 150)
+    assert client._create_completion(model, messages=[]) == "ok"
+    assert seen == {"base_url": base, "timeout": timeout, "model": sent}

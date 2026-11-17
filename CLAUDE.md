@@ -15,7 +15,7 @@ lead intake → AI extract / score / draft → human approval → email sent →
 | Backend | FastAPI + Pydantic v2 + SQLAlchemy 2 + Alembic — `apps/api` (Python 3.12 via uv) |
 | Database | PostgreSQL 16 (pgvector only from Phase 2) |
 | Jobs | Redis 7 + arq worker (same codebase as the API, separate process) |
-| AI | Free via OmniRoute (`http://localhost:20128/v1`, OpenAI-compatible), model chosen from what currently works (now `agy/gemini-3.8-flash-high`, fallback `kr/claude-haiku-4.5`); JSON output validated with Pydantic. Claude API later. |
+| AI | Free. Lead extract/draft runs first on local Qwen3.5 9B via Ollama (`AI_MODEL=ollama/qwen-agent`, `http://localhost:11434/v1`; decided 2026-11-17 after free cloud models hit rate limits), with free OmniRoute models as fallbacks (`http://localhost:20128/v1`). JSON output validated with Pydantic. Claude API later. |
 | Email | Resend |
 | Auth | Clerk (organisation = tenant) |
 | Errors | Sentry |

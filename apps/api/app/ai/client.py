@@ -16,6 +16,10 @@ _FENCE = re.compile(r"^```(?:json)?\s*|\s*```$", re.IGNORECASE)
 
 
 def _create_completion(model: str, **kwargs) -> ChatCompletion:
+    if model.startswith("ollama/"):  # local model on this Mac, no OmniRoute
+        client = OpenAI(base_url=settings.ollama_base_url, api_key="ollama", max_retries=0,
+                        timeout=settings.ai_local_timeout_seconds)
+        return client.chat.completions.create(model=model.removeprefix("ollama/"), **kwargs)
     client = OpenAI(
         base_url=settings.omniroute_base_url,
         api_key=settings.omniroute_api_key or "not-needed",

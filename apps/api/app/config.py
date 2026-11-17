@@ -20,6 +20,8 @@ class Settings(BaseSettings):
     ai_model: str = "agy/gemini-3.8-flash-high"
     ai_fallback_models: list[str] = ["kr/claude-haiku-4.5", "agy/gemini-3.8-flash-medium"]
     ai_timeout_seconds: float = 60
+    ollama_base_url: str = "http://localhost:11434/v1"
+    ai_local_timeout_seconds: float = 150  # local is slower; keeps a lead under job_timeout
     clerk_publishable_key: str = Field(
         default="", validation_alias="NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY"
     )

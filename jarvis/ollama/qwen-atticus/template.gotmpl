@@ -1,0 +1,67 @@
+{{- /* Qwen3.5 chat format, thinking always off (empty think block, as the model's own template does by default).
+       All system messages are merged into one block: Claude Code sends several. */ -}}
+{{- $system := "" }}
+{{- range .Messages }}{{ if eq .Role "system" }}{{ $system = printf "%s%s\n\n" $system .Content }}{{ end }}{{ end }}
+{{- if .Tools }}<|im_start|>system
+# Tools
+
+You have access to the following functions:
+
+<tools>
+{{- range .Tools }}
+{"type": "function", "function": {{ .Function }}}
+{{- end }}
+</tools>
+
+If you choose to call a function ONLY reply in the following format with NO suffix:
+
+<tool_call>
+<function=example_function_name>
+<parameter=example_parameter_1>
+value_1
+</parameter>
+<parameter=example_parameter_2>
+This is the value for the second parameter
+that can span
+multiple lines
+</parameter>
+</function>
+</tool_call>
+
+<IMPORTANT>
+Reminder:
+- Function calls MUST follow the specified format: an inner <function=...></function> block must be nested within <tool_call></tool_call> XML tags
+- Required parameters MUST be specified
+- You may provide optional reasoning for your function call in natural language BEFORE the function call, but NOT after
+- If there is no function call available, answer the question like normal with your current knowledge and do not tell the user about function calls
+</IMPORTANT>
+{{- if $system }}
+
+{{ $system }}{{ end }}<|im_end|>
+{{ else if $system }}<|im_start|>system
+{{ $system }}<|im_end|>
+{{ end }}
+{{- range .Messages }}
+{{- if eq .Role "user" }}<|im_start|>user
+{{ .Content }}<|im_end|>
+{{ else if eq .Role "assistant" }}<|im_start|>assistant
+{{ .Content }}
+{{- range .ToolCalls }}
+<tool_call>
+<function={{ .Function.Name }}>
+{{ range $k, $v := .Function.Arguments }}<parameter={{ $k }}>
+{{ $v }}
+</parameter>
+{{ end }}</function>
+</tool_call>
+{{- end }}<|im_end|>
+{{ else if eq .Role "tool" }}<|im_start|>user
+<tool_response>
+{{ .Content }}
+</tool_response><|im_end|>
+{{ end }}
+{{- end }}<|im_start|>assistant
+<think>
+
+</think>
+
