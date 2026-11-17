@@ -1,6 +1,8 @@
 "use client";
 
 import { useAuth, useOrganization } from "@clerk/nextjs";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 
 import { AppHeader } from "@/components/app-header";
@@ -11,40 +13,19 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { apiFetch } from "@/lib/api";
+import { ACTION, STATUS_STYLE, timeAgo } from "@/lib/leads";
 
 type Lead = {
   id: string;
   name: string;
   email: string;
+  company: string | null;
   status: string;
   fit_score: number | null;
   last_error: string | null;
   created_at: string;
 };
 type Result = { id: string; status: string; duplicate: boolean };
-
-const STATUS_STYLE: Record<string, string> = {
-  NEW: "bg-slate-100 text-slate-700",
-  PROCESSING: "bg-blue-100 text-blue-800",
-  DRAFT_READY: "bg-emerald-100 text-emerald-800",
-  LOW_FIT: "bg-amber-100 text-amber-800",
-  FAILED: "bg-red-100 text-red-800",
-  APPROVED: "bg-green-100 text-green-800",
-  REJECTED: "bg-zinc-200 text-zinc-700",
-  SENT: "bg-violet-100 text-violet-800",
-};
-const ACTION: Record<string, { path: string; label: string }> = {
-  FAILED: { path: "retry", label: "Retry" },
-  LOW_FIT: { path: "draft-anyway", label: "Draft anyway" },
-};
-
-function timeAgo(iso: string) {
-  const s = Math.max(0, Math.floor((Date.now() - new Date(iso).getTime()) / 1000));
-  if (s < 60) return "just now";
-  if (s < 3600) return `${Math.floor(s / 60)}m ago`;
-  if (s < 86400) return `${Math.floor(s / 3600)}h ago`;
-  return `${Math.floor(s / 86400)}d ago`;
-}
 
 function TestLeadForm({ onSent }: { onSent: () => void }) {
   const { getToken } = useAuth();
@@ -118,21 +99,34 @@ function TestLeadForm({ onSent }: { onSent: () => void }) {
   );
 }
 
+const FILTERS: [string, string][] = [
+  ["DRAFT_READY", "Needs approval"],
+  ["", "All"],
+  ...["NEW", "PROCESSING", "LOW_FIT", "FAILED", "APPROVED", "SENT", "REJECTED"].map(
+    (x): [string, string] => [x, x],
+  ),
+];
+
 // Parent keys this by org id, so switching organization remounts and refetches.
 function LeadsPanel() {
   const { getToken } = useAuth();
+  const router = useRouter();
+  const [filter, setFilter] = useState("DRAFT_READY");
   const [leads, setLeads] = useState<Lead[] | null>(null);
   const [failed, setFailed] = useState(false);
 
   const load = useCallback(async () => {
     try {
-      const { data } = await apiFetch<Lead[]>(getToken, "/v1/leads");
+      const { data } = await apiFetch<Lead[]>(
+        getToken,
+        `/v1/leads?${filter ? `status=${filter}&` : ""}limit=200`,
+      );
       setLeads(data);
       setFailed(false);
     } catch {
       setFailed(true);
     }
-  }, [getToken]);
+  }, [getToken, filter]);
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -161,31 +155,53 @@ function LeadsPanel() {
       <TestLeadForm onSent={load} />
       <Card>
         <CardHeader>
-          <CardTitle>Leads</CardTitle>
+          <CardTitle>Inbox</CardTitle>
         </CardHeader>
-        <CardContent>
+        <CardContent className="grid gap-4">
+          <div className="flex flex-wrap gap-2">
+            {FILTERS.map(([value, label]) => (
+              <Button
+                key={label}
+                size="sm"
+                variant={filter === value ? "default" : "outline"}
+                onClick={() => {
+                  setLeads(null);
+                  setFilter(value);
+                }}
+              >
+                {label}
+              </Button>
+            ))}
+          </div>
           {failed ? (
             <Badge variant="destructive">Could not load leads</Badge>
           ) : leads === null ? (
             <Badge variant="secondary">Loading...</Badge>
           ) : leads.length === 0 ? (
-            <p className="text-sm text-muted-foreground">No leads yet.</p>
+            <p className="text-sm text-muted-foreground">No leads here.</p>
           ) : (
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b text-left text-muted-foreground">
                   <th className="py-2 pr-3 font-medium">Name</th>
-                  <th className="py-2 pr-3 font-medium">Email</th>
-                  <th className="py-2 pr-3 font-medium">Fit</th>
+                                    <th className="py-2 pr-3 font-medium">Fit</th>
                   <th className="py-2 pr-3 font-medium">Status</th>
                   <th className="py-2 text-right font-medium">Received</th>
                 </tr>
               </thead>
               <tbody>
                 {leads.map((l) => (
-                  <tr key={l.id} className="border-b last:border-0">
-                    <td className="py-2 pr-3">{l.name}</td>
-                    <td className="py-2 pr-3">{l.email}</td>
+                  <tr
+                    key={l.id}
+                    className="cursor-pointer border-b last:border-0 hover:bg-muted/50"
+                    onClick={() => router.push(`/leads/${l.id}`)}
+                  >
+                    <td className="py-2 pr-3">
+                      <Link href={`/leads/${l.id}`} className="font-medium hover:underline">
+                        {l.name}
+                      </Link>
+                      {l.company && <div className="text-xs text-muted-foreground">{l.company}</div>}
+                    </td>
                     <td className="py-2 pr-3">{l.fit_score ?? "-"}</td>
                     <td className="py-2 pr-3">
                       <Badge
@@ -200,7 +216,10 @@ function LeadsPanel() {
                           size="sm"
                           variant="outline"
                           className="ml-2 h-6 px-2 text-xs"
-                          onClick={() => void act(l)}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            void act(l);
+                          }}
                         >
                           {ACTION[l.status].label}
                         </Button>

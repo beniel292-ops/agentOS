@@ -19,8 +19,6 @@ from app.config import settings
 from app.db import SessionLocal
 from app.models import (
     AuditEvent,
-    Draft,
-    DraftDecision,
     Lead,
     LeadStatus,
     Task,
@@ -31,7 +29,7 @@ from app.models import (
 from app.routes.cos import get_or_create_settings, today_open_tasks
 from app.telegram.client import TelegramClient, TelegramError, get_client
 from app.telegram.notify import next_call_text
-from app.workflow.transitions import ConcurrentTransition, InvalidTransition, transition
+from app.workflow.decisions import decide
 
 log = logging.getLogger(__name__)
 CALLBACK_RE = re.compile(r"^(ap|rj|rr|rd):([0-9a-f-]{36})$")
@@ -123,35 +121,18 @@ def _decide(
         if get_or_create_settings(session, tenant_id).stopped:
             session.rollback()
             return "stopped", None
-        lead = session.scalars(
-            select(Lead).where(Lead.id == lead_id, Lead.tenant_id == tenant_id).with_for_update()
-        ).first()
-        if lead is None:
-            return "missing", None
-        draft = session.scalars(
-            select(Draft).where(Draft.lead_id == lead.id, Draft.tenant_id == tenant_id)
-            .with_for_update()
-        ).first()
-        if lead.status != LeadStatus.DRAFT_READY or draft is None or draft.decision is not None:
-            return "handled", lead.status
         owner_id = session.scalar(
             select(User.id).where(User.tenant_id == tenant_id, User.role == UserRole.OWNER)
             .order_by(User.created_at).limit(1)
         )
-        draft.decision = DraftDecision.APPROVED if approve else DraftDecision.REJECTED
-        draft.decided_at, draft.decided_by = _now(), owner_id
-        if not approve:
-            draft.reject_reason = "Rejected from Telegram"
-        try:
-            transition(
-                session, lead, LeadStatus.APPROVED if approve else LeadStatus.REJECTED,
-                f"telegram:{user_id}",
-            )
-        except (InvalidTransition, ConcurrentTransition):
-            session.rollback()
-            return "handled", None
-        session.commit()
-        return "done", None
+        outcome, lead = decide(
+            session, tenant_id, lead_id=lead_id, approve=approve, actor=f"telegram:{user_id}",
+            decided_by=owner_id, reason="Rejected from Telegram",
+        )
+        if outcome == "done":
+            session.commit()
+            return "done", None
+        return outcome, lead.status if lead else None
 
 
 def handle_callback(
