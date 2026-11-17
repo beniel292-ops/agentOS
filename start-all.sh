@@ -2,7 +2,8 @@
 # Start the whole Personal OS after a reboot, in order:
 # Docker -> OmniRoute + Jarvis/Fury + call relay (auto-restart containers) -> AgentOS DB/Redis
 # -> local voice + answering service -> AgentOS app (API, worker, bot, tools, web) in this terminal.
-# Usage: ./start-all.sh        (Ctrl+C stops the AgentOS app; containers keep running)
+# Usage: ./start-all.sh        (dev: Ctrl+C stops the AgentOS app; containers keep running)
+#        ./start-all.sh prod   (production style: built web, migrations, auto-restart)
 cd "$(dirname "$0")" || exit 1
 
 echo "1/5 Docker..."
@@ -32,4 +33,5 @@ until curl -s -m 3 "http://$WANT:8080/healthz" >/dev/null; do sleep 2; done  # t
 
 echo "5/5 AgentOS app (API, worker, Telegram bot, task tools, web)..."
 echo "    Status in another terminal: ./jarvis/jarvis.sh status && ./jarvis/cos/voice.sh status"
+if [ "$1" = prod ]; then exec make prod; fi
 exec make dev

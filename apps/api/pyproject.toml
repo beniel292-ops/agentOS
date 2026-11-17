@@ -17,6 +17,7 @@ dependencies = [
     "openai>=3.49.0",
     "httpx",
     "mcp>=1.9,<2",
+    "sentry-sdk>=2.75.0",
 ]
 
 [dependency-groups]

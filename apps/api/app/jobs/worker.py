@@ -11,6 +11,7 @@ from app.cos.calls import CALL_TIMEOUT, place_due_calls
 from app.db import SessionLocal
 from app.jobs import queue
 from app.models import Lead, LeadStatus
+from app.sentry import init as init_sentry
 from app.telegram import notify as tg_notify
 from app.telegram.client import TelegramError, get_client
 from app.workflow import process, send
@@ -120,7 +121,13 @@ async def requeue_approved_leads(ctx) -> None:
         await ctx["redis"].enqueue_job("send_reply", lead_id, _job_id=f"send_reply:{lead_id}")
 
 
+
+async def on_startup(ctx) -> None:
+    init_sentry("worker")
+
+
 class WorkerSettings:
+    on_startup = on_startup
     # place_due_calls is also a plain function so POST /v1/cos/calls/now can trigger it at once
     # (arq registers cron jobs only as "cron:<name>"); the Redis call lock prevents double dialing.
     functions = [

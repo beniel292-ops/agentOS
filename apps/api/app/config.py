@@ -15,6 +15,8 @@ class Settings(BaseSettings):
 
     database_url: str = "postgresql+psycopg://agentos:agentos@localhost:5434/agentos"
     redis_url: str = "redis://localhost:6380/0"
+    sentry_dsn: str = ""  # empty = Sentry off
+    sentry_environment: str = "development"
     omniroute_base_url: str = "http://localhost:20128/v1"
     omniroute_api_key: str = ""
     ai_model: str = "agy/gemini-3.8-flash-high"

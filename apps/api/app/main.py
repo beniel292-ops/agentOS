@@ -9,6 +9,7 @@ from app.config import settings
 from app.db import engine
 from app.jobs.queue import close_pool
 from app.routes import cos, intake, leads, me, tenant
+from app.sentry import init as init_sentry
 
 
 @asynccontextmanager
@@ -17,6 +18,7 @@ async def lifespan(_: FastAPI):
     await close_pool()
 
 
+init_sentry("api")
 app = FastAPI(title="AgentOS API", lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
